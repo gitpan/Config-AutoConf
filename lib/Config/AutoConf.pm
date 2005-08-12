@@ -15,11 +15,11 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =head1 VERSION
 
-Version 0.02
+Version 0.03
 
 =cut
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 =head1 ABSTRACT
 
@@ -40,7 +40,43 @@ macros do. To detect a command, to detect a library, etc.
 
     Config::AutoConf->check_lib("ncurses", "tgoto");
 
+    Config::AutoConf->check_file("/etc/passwd"); # -f && -r
+
 =head1 FUNCTIONS
+
+=head2 check_file
+
+This function checks if a file exists in the system and is readable by
+the user. Returns a boolean. You can use '-f $file && -r $file' so you
+don't need to use a function call.
+
+=cut
+
+sub check_file {
+  my $class = shift;
+  my $file = shift;
+
+  return (-f $file && -r $file);
+}
+
+
+=head2 check_files
+
+This function checks if a set of files exist in the system and are
+readable by the user. Returns a boolean.
+
+=cut
+
+sub check_files {
+  my $class = shift;
+
+  for (@_) {
+    return 0 unless check_file($class, $_)
+  }
+
+  return 1;
+}
+
 
 =head2 check_prog
 
@@ -242,8 +278,7 @@ addressed later, or by request.
 
 =head1 BUGS
 
-A lot. Portability is a pain, and I just have a Linux machine.
-B<<Patches welcome!>>.
+A lot. Portability is a pain. B<<Patches welcome!>>.
 
 Please report any bugs or feature requests to
 C<bug-extutils-autoconf@rt.cpan.org>, or through the web interface at
@@ -252,9 +287,9 @@ be notified of progress on your bug as I make changes.
 
 =head1 ACKNOWLEDGEMENTS
 
-Michael Schwern
+Michael Schwern for kind MacOS X help.
 
-Ken Williams
+Ken Williams for ExtUtils::CBuilder
 
 =head1 COPYRIGHT & LICENSE
 

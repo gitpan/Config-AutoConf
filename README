@@ -1,4 +1,4 @@
- Config::AutoConf version 0.02
+ Config::AutoConf version 0.03
 ===============================
 
 A module to implement some of AutoConf macros in pure perl.

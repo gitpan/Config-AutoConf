@@ -1,6 +1,10 @@
 Revision history for Config-AutoConf
 
-0.02      2005,
+0.03      2005, 12 August
+
+	- Added 'check_file' and 'check_files' methods (kind of stupid methods)
+
+0.02      2005, 14 February
  
 	- Moved from ExtUtils:: to Config::
 
