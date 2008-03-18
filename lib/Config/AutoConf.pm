@@ -15,11 +15,11 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =head1 VERSION
 
-Version 0.04
+Version 0.05
 
 =cut
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 =head1 ABSTRACT
 
@@ -115,6 +115,24 @@ sub check_progs {
   return undef;
 }
 
+=head2 check_prog_yacc
+
+From the autoconf documentation,
+
+  If `bison' is found, set [...] `bison -y'.
+  Otherwise, if `byacc' is found, set [...] `byacc'. 
+  Otherwise set [...] `yacc'.
+
+Returns the full path, if found.
+
+=cut
+
+sub check_prog_yacc {
+	my $class = shift;
+	my $binary = check_progs(qw/$class bison byacc yacc/);
+	$binary .= " -y" if ($binary =~ /bison$/);
+	return $binary;
+}
 
 =head2 check_prog_awk
 

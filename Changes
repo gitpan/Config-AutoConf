@@ -1,5 +1,8 @@
 Revision history for Config-AutoConf
 
+0.05	March 18, 2008
+	- added 'check_prog_yacc' method to check for a yacc implementation (see POD)
+
 0.04	March 18, 2008
 	- adapt to new ExtUtils::CBuilder API
 

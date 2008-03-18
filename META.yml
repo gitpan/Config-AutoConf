@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Config-AutoConf
-version:             0.04
+version:             0.05
 abstract:            A module to implement some of AutoConf macros in pure perl.
 license:             ~
 author:              
