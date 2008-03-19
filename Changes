@@ -1,5 +1,9 @@
 Revision history for Config-AutoConf
 
+0.06	March 19, 2008
+	- added -quiet option to ExtUtils::CBuilder for less noise when detecting
+	  things.
+
 0.05	March 18, 2008
 	- added 'check_prog_yacc' method to check for a yacc implementation (see POD)
 

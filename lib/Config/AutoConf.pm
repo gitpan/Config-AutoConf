@@ -15,11 +15,11 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =head1 VERSION
 
-Version 0.05
+Version 0.06
 
 =cut
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 =head1 ABSTRACT
 
@@ -187,7 +187,7 @@ This function checks if you have a running C compiler.
 =cut
 
 sub check_cc {
-  ExtUtils::CBuilder->new()->have_compiler;
+  ExtUtils::CBuilder->new(quiet => 1)->have_compiler;
 }
 
 =head2 check_lib
@@ -207,7 +207,7 @@ sub check_lib {
   my $lib = shift;
   my $func = shift;
 
-  my $cbuilder = ExtUtils::CBuilder->new();
+  my $cbuilder = ExtUtils::CBuilder->new(quiet => 1);
 
   return 0 unless $lib;
   return 0 unless $func;
