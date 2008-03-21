@@ -1,11 +1,15 @@
 Revision history for Config-AutoConf
 
+0.07	March 21, 2008
+	- refactored some tests to make them Win-aware
+
 0.06	March 19, 2008
-	- added -quiet option to ExtUtils::CBuilder for less noise when detecting
-	  things.
+	- added -quiet option to ExtUtils::CBuilder for less noise when 
+	  detecting things.
 
 0.05	March 18, 2008
-	- added 'check_prog_yacc' method to check for a yacc implementation (see POD)
+	- added 'check_prog_yacc' method to check for a yacc implementation
+	  (see POD)
 
 0.04	March 18, 2008
 	- adapt to new ExtUtils::CBuilder API
@@ -17,10 +21,10 @@ Revision history for Config-AutoConf
 	- Moved from ExtUtils:: to Config::
 
 Previous releases
-	- Added 'check_prog' method to check for executable program (see POD)
-	- Added 'check_progs' method to check for a list of programs (see POD)
-	- Added 'check_prog_awk' method to check for an awk implementation (see POD)
-	- Added 'check_prog_egrep' method to check for an egrep implementation (see POD)
+	- Added 'check_prog' method to check for executable program
+	- Added 'check_progs' method to check for a list of programs
+	- Added 'check_prog_awk' method to check for an awk implementation
+	- Added 'check_prog_egrep' method to check for an egrep implementation
 	- first indexable version -- I need to use this module somewhere else;
 	- using ExtUtils::CBuilder to compile test;
 	- version correcting test for Mac OS-X (thanks, Michael Schwern);
