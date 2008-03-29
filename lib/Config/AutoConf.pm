@@ -1,5 +1,6 @@
 package Config::AutoConf;
 use ExtUtils::CBuilder;
+use 5.008;
 
 use Config;
 
@@ -15,11 +16,11 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =head1 VERSION
 
-Version 0.07
+Version 0.08
 
 =cut
 
-our $VERSION = '0.07';
+our $VERSION = '0.08';
 
 =head1 ABSTRACT
 
