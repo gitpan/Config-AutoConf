@@ -1,6 +1,6 @@
 package Config::AutoConf;
 use ExtUtils::CBuilder;
-use 5.008;
+use 5.008002;
 
 use Config;
 
@@ -16,11 +16,11 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =head1 VERSION
 
-Version 0.08
+Version 0.09
 
 =cut
 
-our $VERSION = '0.08';
+our $VERSION = '0.09';
 
 =head1 ABSTRACT
 
@@ -32,7 +32,10 @@ macros do. To detect a command, to detect a library, etc.
     use Config::AutoConf;
 
     Config::AutoConf->check_prog("agrep");
-    Config::AutoConf->check_progs("agrep", "egrep", "grep");
+    my $grep = Config::AutoConf->check_progs("agrep", "egrep", "grep");
+
+    Config::AutoConf->check_header("ncurses.h");
+    my $curses = Config::AutoConf->check_headers("ncurses.h","curses.h");
 
     Config::AutoConf->check_prog_awk;
     Config::AutoConf->check_prog_egrep;
@@ -191,6 +194,92 @@ sub check_cc {
   ExtUtils::CBuilder->new(quiet => 1)->have_compiler;
 }
 
+=head2 check_headers
+
+This function uses check_header to check if a set of include files exist in the system and can
+be included and compiled by the available compiler. Returns the name of the first header file found.
+
+=cut
+
+sub check_headers {
+  my $class = shift;
+
+  for (@_) {
+    return $_ if check_header($class, $_)
+  }
+
+  return undef;
+}
+
+
+=head2 check_header
+
+This function is used to check if a specific header file is present in
+the system: if we detect it and if we can compile anything with that
+header included. Note that normally you want to check for a header
+first, and then check for the corresponding library (not all at once).
+
+The standard usage for this module is:
+
+  Config::AutoConf->check_header("ncurses.h");
+  
+This function will return a true value (1) on success, and a false value
+if the header is not present or not available for common usage.
+
+=cut
+
+sub check_header {
+    my $class = shift;
+    my $header = shift;
+    
+    my $cbuilder = ExtUtils::CBuilder->new(quiet => 1);
+    
+    return 0 unless $header;
+    
+    # print STDERR "Trying to compile a test program to check [$header] availability...\n";
+    
+    my $conftest = <<"_ACEOF";
+    /* Override any gcc2 internal prototype to avoid an error.  */
+    #ifdef __cplusplus
+    extern "C"
+    #endif
+
+    #include <$header>
+
+    int
+    main ()
+    {
+      return 0;
+    }    
+_ACEOF
+
+    my ($fh, $filename) = tempfile( "testXXXXXX", SUFFIX => '.c');
+    $filename =~ m!^(.*).c$!;
+    my $base = $1;
+
+    print {$fh} $conftest;
+    close $fh;
+
+    my $obj_file = eval{ $cbuilder->compile(source => $filename) };
+
+    if ($@ || !$obj_file) {
+        unlink $filename;
+        unlink $obj_file if $obj_file;        
+        return 0         
+    }
+
+    my $exe_file = eval { $cbuilder->link_executable(objects => $obj_file) };
+
+    unlink $filename;
+    unlink $obj_file if $obj_file;
+    unlink $exe_file if $exe_file;
+
+    return 0 if $@;
+    return 0 unless $exe_file;
+
+    return 1;
+}
+
 =head2 check_lib
 
 This function is used to check if a specific library includes some
@@ -213,7 +302,7 @@ sub check_lib {
   return 0 unless $lib;
   return 0 unless $func;
 
-  print STDERR "Trying to compile test program to check $func on $lib library...\n";
+  # print STDERR "Trying to compile test program to check [$func] on [$lib] library...\n";
 
   my $LIBS = "-l$lib";
   my $conftest = <<"_ACEOF";
@@ -235,17 +324,19 @@ _ACEOF
 
 
   my ($fh, $filename) = tempfile( "testXXXXXX", SUFFIX => '.c');
-  $filename =~ m!.c$!;
-  my $base = $`;
+  $filename =~ m!(.*).c$!;
+  my $base = $1;
 
   print {$fh} $conftest;
   close $fh;
 
   my $obj_file = eval{ $cbuilder->compile(source => $filename) };
 
-  return 0 if $@;
-  return 0 unless $obj_file;
-
+  if ($@ || !$obj_file) {
+      unlink $filename;
+      unlink $obj_file if $obj_file;        
+      return 0         
+  }
 
   my $exe_file = eval { $cbuilder->link_executable(objects => $obj_file,
 						   extra_linker_flags => $LIBS) };

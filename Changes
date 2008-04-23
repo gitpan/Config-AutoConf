@@ -1,10 +1,15 @@
 Revision history for Config-AutoConf
 
+0.09    April 23, 2008
+	- Added 'check_headers?' methods to check for C heading files;
+	- fixed the deletion of .c files created by failing tests;
+	- Require perl 5.8.1 and ExtUtils::CBuilder 0.23
+
 0.08    March 29, 2008
-	- requrire a 5.8 Perl 
+	- require a 5.8 Perl 
 
 0.07	March 21, 2008
-	- refactored some tests to make them Win-aware
+	- re-factored some tests to make them Win-aware
 
 0.06	March 19, 2008
 	- added -quiet option to ExtUtils::CBuilder for less noise when 

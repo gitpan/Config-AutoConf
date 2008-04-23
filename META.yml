@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:                Config-AutoConf
-version:             0.08
+version:             0.09
 abstract:            A module to implement some of AutoConf macros in pure perl.
 license:             ~
 author:              
@@ -8,7 +8,7 @@ author:
 generated_by:        ExtUtils::MakeMaker version 6.43_01
 distribution_type:   module
 requires:     
-    ExtUtils::CBuilder:            0.07
+    ExtUtils::CBuilder:            0.23
     Test::More:                    0
 meta-spec:
     url:     http://module-build.sourceforge.net/META-spec-v1.3.html

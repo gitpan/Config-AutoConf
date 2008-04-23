@@ -2,7 +2,7 @@ use strict;
 use warnings;
 use ExtUtils::MakeMaker;
 
-use 5.008;
+use 5.008002;
 
 WriteMakefile(
 	      NAME          => 'Config::AutoConf',
@@ -11,7 +11,7 @@ WriteMakefile(
 	      ABSTRACT_FROM => 'lib/Config/AutoConf.pm',
 	      PL_FILES      => {},
 	      PREREQ_PM     => {
-				'ExtUtils::CBuilder' => 0.07,
+				'ExtUtils::CBuilder' => 0.23,
 				'Test::More'         => 0,
 			       },
 	      dist          => {
