@@ -1,5 +1,9 @@
 Revision history for Config-AutoConf
 
+0.10    September 3, 2008
+        - Removed the tilde on my name, from Makefile.PL.
+          Was generating some weird results on VMS and Solaris.
+
 0.09    April 23, 2008
 	- Added 'check_headers?' methods to check for C heading files;
 	- fixed the deletion of .c files created by failing tests;

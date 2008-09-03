@@ -6,7 +6,7 @@ use 5.008002;
 
 WriteMakefile(
 	      NAME          => 'Config::AutoConf',
-	      AUTHOR        => 'Alberto Simões <ambs@cpan.org>',
+	      AUTHOR        => 'Alberto Simoes <ambs@cpan.org>',
 	      VERSION_FROM  => 'lib/Config/AutoConf.pm',
 	      ABSTRACT_FROM => 'lib/Config/AutoConf.pm',
 	      PL_FILES      => {},
