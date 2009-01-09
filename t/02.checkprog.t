@@ -4,22 +4,12 @@ use Test::More tests => 6;
 use Config;
 use Config::AutoConf;
 
-if ($^O =~ m!MSWin32!) {
-	ok(Config::AutoConf->check_prog("perl.exe"));
-} else {
-	ok(Config::AutoConf->check_prog("perl"));
-}
+ok(Config::AutoConf->check_prog("perl"));
 
 ok(!Config::AutoConf->check_prog("hopingnobodyhasthiscommand"));
 
-SKIP: {
-	if ($^O =~ m!MSWin32!) {
-		like(Config::AutoConf->check_progs("__perl__.exe", "_perl_.exe", "perl.exe"), qr/perl.exe$/);
-	} else {
-		like(Config::AutoConf->check_progs("___perl___", "__perl__", "_perl_", "perl"), qr/perl$/);
-	}
-	is(Config::AutoConf->check_progs("___perl___", "__perl__", "_perl_"), undef);	
-};
+like(Config::AutoConf->check_progs("___perl___", "__perl__", "_perl_", "perl"), qr/perl(.exe)?$/i);
+is(Config::AutoConf->check_progs("___perl___", "__perl__", "_perl_"), undef);	
 
 SKIP: {
   my $awk;

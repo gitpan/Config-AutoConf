@@ -16,11 +16,11 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =head1 VERSION
 
-Version 0.10
+Version 0.11
 
 =cut
 
-our $VERSION = '0.10';
+our $VERSION = '0.11';
 
 =head1 ABSTRACT
 
@@ -95,8 +95,12 @@ sub check_prog {
   my $ac_prog = _sanitize(shift());
   my $PATH = $ENV{PATH};
   my $p;
+
+	my $ext = "";
+	$ext = ".exe" if $^O =~ /mswin/i;
+	
   for $p (split /$Config{path_sep}/,$PATH) {
-    my $cmd = File::Spec->catfile($p,$ac_prog);
+    my $cmd = File::Spec->catfile($p,$ac_prog.$ext);
     return $cmd if -x $cmd;
   }
   return undef;

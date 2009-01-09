@@ -1,5 +1,8 @@
 Revision history for Config-AutoConf
 
+0.11	January 9, 2009
+	- check_prog with better support for Windows machines.
+
 0.10    September 3, 2008
         - Removed the tilde on my name, from Makefile.PL.
           Was generating some weird results on VMS and Solaris.
