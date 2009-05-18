@@ -7,20 +7,23 @@ use Config;
 use File::Temp qw/tempfile/;
 use File::Spec;
 
+use base 'Exporter';
+
+our @EXPORT = ('$LIBEXT', '$EXEEXT');
+
 use warnings;
 use strict;
+
+our $LIBEXT = ($^O =~ /darwin/i)  ? ".dylib" : ( ($^O =~ /mswin32/i) ? ".dll" : ".so" );
+our $EXEEXT = ($^O =~ /mswin32/i) ? ".exe" : "";
 
 =head1 NAME
 
 Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
-=head1 VERSION
-
-Version 0.11
-
 =cut
 
-our $VERSION = '0.11';
+our $VERSION = '0.12_1';
 
 =head1 ABSTRACT
 

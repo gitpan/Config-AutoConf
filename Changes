@@ -1,11 +1,15 @@
 Revision history for Config-AutoConf
 
+0.12_1	May 18, 2009
+	- Added code to detect how to build a library. 
+      It is a big, really big hack. Still not documented.
+
 0.11	January 9, 2009
 	- check_prog with better support for Windows machines.
 
 0.10    September 3, 2008
-        - Removed the tilde on my name, from Makefile.PL.
-          Was generating some weird results on VMS and Solaris.
+	- Removed the tilde on my name, from Makefile.PL.
+	  Was generating some weird results on VMS and Solaris.
 
 0.09    April 23, 2008
 	- Added 'check_headers?' methods to check for C heading files;
