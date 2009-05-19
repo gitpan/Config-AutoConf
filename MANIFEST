@@ -11,3 +11,4 @@ t/01.checklib.t
 t/02.checkprog.t
 t/03.checkheader.t
 lib/Config/AutoConf/Linker.pm
+t/04.checklink.t

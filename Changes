@@ -1,5 +1,8 @@
 Revision history for Config-AutoConf
 
+0.12_2  May 19, 2009
+	- Added t/04 that was missing from MANIFEST
+
 0.12_1	May 18, 2009
 	- Added code to detect how to build a library. 
       It is a big, really big hack. Still not documented.
