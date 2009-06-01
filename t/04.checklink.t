@@ -37,11 +37,12 @@ SKIP: {
     ok(-f $exefile);
     ok(-x $exefile);
 
-    my $out;
-    if ($LIBEXT eq "so") {
-        $ENV{LD_LIBRARY_PATH} = ".";
+    if ($LIBEXT eq ".so") {
+		$ENV{LD_LIBRARY_PATH}=$dir;
     }
-    chomp($out = `$exefile`);
+	open EXEC, "$exefile|" or die;
+    chomp(my $out = <EXEC>);
+	close EXEC;
     is($out, "42");
 }
 

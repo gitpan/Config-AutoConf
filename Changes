@@ -1,5 +1,8 @@
 Revision history for Config-AutoConf
 
+0.12_4  Jun  1, 2009
+        - And fixing a stupid idea, with probably another stupid idea.
+
 0.12_3  Jun  1, 2009
         - Trying other way arround to change LD_LIBRARY_PATH under
           t/04, that was failing under FreeBSD.
