@@ -5,7 +5,7 @@ use Config::AutoConf::Linker;
 use File::Temp qw/tempdir/;
 use File::Spec;
 
-my $dir = tempdir(CLEANUP => 1);
+my $dir = tempdir(CLEANUP => 0);
 _write_files($dir);
 my $CC = ExtUtils::CBuilder->new(quiet => 0);
 my ($LD, $CCL) = Config::AutoConf::Linker::detect_library_link_commands($CC);
@@ -39,12 +39,10 @@ SKIP: {
 
     my $out;
     if ($LIBEXT eq "so") {
-        chomp($out = `LD_LIBRARY_PATH=. ./$exefile`);
-    } else {
-        chomp($out = `$exefile`);
-        is($out, "42");
+        $ENV{LD_LIBRARY_PATH} = ".";
     }
-
+    chomp($out = `$exefile`);
+    is($out, "42");
 }
 
 sub _write_files {

@@ -55,7 +55,7 @@ sub detect_library_link_commands {
             $LINK_WITH_LIB = undef;
         }
     } else {
-	my $LD = $CCOMP->{Config}{ld};
+	my $LD = $CCOMP->{config}{ld};
 
 	system($LD,"-shared","-o",$libfile,$objects[0]);
 	if (-f $libfile) {

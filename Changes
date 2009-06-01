@@ -1,5 +1,9 @@
 Revision history for Config-AutoConf
 
+0.12_3  Jun  1, 2009
+        - Trying other way arround to change LD_LIBRARY_PATH under
+          t/04, that was failing under FreeBSD.
+
 0.12_2  May 19, 2009
 	- Added t/04 that was missing from MANIFEST
 
