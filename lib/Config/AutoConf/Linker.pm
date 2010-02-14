@@ -88,8 +88,10 @@ sub detect_library_link_commands {
 sub _write_files {
     my $fh;
     my $outpath = shift;
+
+    seek DATA, 0, 0;
     while(<DATA>) {
-        if (m!==\[(.*?)\]==!) {
+        if (m!^==\[(.*?)\]==!) {
 	    my $fname = $1;
             $fname = File::Spec->catfile($outpath, $fname);
             open $fh, ">$fname" or die "Can't create temporary file $fname\n";

@@ -1,5 +1,8 @@
 Revision history for Config-AutoConf
 
+0.14    Feb 14, 2010
+        - Added rewind to Linker.pm module. This code is still under heavy tests.
+
 0.13    Jun  2, 2009
         - First stable release with code to detect how to build a C dynamic library.
 
