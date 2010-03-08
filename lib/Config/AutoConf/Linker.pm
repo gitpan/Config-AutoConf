@@ -15,6 +15,9 @@ sub detect_library_link_commands {
     my $dir = tempdir(CLEANUP => 1);
     _write_files($dir);
 
+    my $quiet_state = $CCOMP->{quiet};
+    $CCOMP->{quiet} = 1;
+
     my $CREATE_LIB;
     my $LINK_WITH_LIB;
 
@@ -25,7 +28,7 @@ sub detect_library_link_commands {
     my @source_files = map { File::Spec->catfile($dir,$_) } ('library.c', 'test.c');
 
     ## Create object files
-    my @objects = map { $CCOMP->compile(source => $_) } @source_files;
+    my @objects = map { $CCOMP->compile(source => $_); } @source_files;
 
     ## Calculate filenames
     my $libfile = File::Spec->catfile($dir, "libfoo$LIBEXT");
@@ -57,7 +60,7 @@ sub detect_library_link_commands {
     } else {
 	my $LD = $CCOMP->{config}{ld};
 
-	system($LD,"-shared","-o",$libfile,$objects[0]);
+        system($LD,"-shared","-o",$libfile,$objects[0]);
 	if (-f $libfile) {
             $CREATE_LIB = sub {
                 my $CC = shift;
@@ -81,6 +84,9 @@ sub detect_library_link_commands {
             $LINK_WITH_LIB = undef;
 	}
     }
+
+    $CCOMP->{quiet} = $quiet_state;
+
     return ($CREATE_LIB, $LINK_WITH_LIB);
 }
 
