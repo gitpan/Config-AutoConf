@@ -1,5 +1,8 @@
 Revision history for Config-AutoConf
 
+0.16    Sep 23, 2010
+        - Config::AutoConf::Linker moved to ExtUtils::LibBuilder.
+
 0.15    Mar  8, 2010
         - Config::AutoConf::Linker more silent.
 
