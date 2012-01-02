@@ -3,9 +3,14 @@ use ExtUtils::CBuilder;
 use 5.008002;
 
 use Config;
+use Carp qw/croak/;
 
 use File::Temp qw/tempfile/;
+use File::Basename;
 use File::Spec;
+
+use Capture::Tiny qw/capture/;
+use Scalar::Util qw/looks_like_number/; # in core since 5.7.3
 
 use base 'Exporter';
 
@@ -14,8 +19,11 @@ our @EXPORT = ('$LIBEXT', '$EXEEXT');
 use warnings;
 use strict;
 
-our $LIBEXT = ($^O =~ /darwin/i)  ? ".dylib" : ( ($^O =~ /mswin32/i) ? ".dll" : ".so" );
+# XXX detect HP-UX / HPPA
+our $LIBEXT = (defined $Config{dlext}) ? ("." . $Config{dlext}) : ($^O =~ /darwin/i)  ? ".dylib" : ( ($^O =~ /mswin32/i) ? ".dll" : ".so" );
 our $EXEEXT = ($^O =~ /mswin32/i) ? ".exe" : "";
+
+=encoding utf-8
 
 =head1 NAME
 
@@ -23,7 +31,7 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =cut
 
-our $VERSION = '0.16';
+our $VERSION = '0.17_01';
 
 =head1 ABSTRACT
 
@@ -51,6 +59,46 @@ macros do. To detect a command, to detect a library, etc.
 
 =head1 FUNCTIONS
 
+=cut
+
+my $glob_instance;
+
+=head2 new
+
+This function instantiates a new instance of Config::AutoConf, eg. to
+configure child components.
+
+=cut
+
+sub new {
+  my $class = shift;
+  ref $class and $class = ref $class;
+  my %args = @_;
+
+  my %instance = (
+    lang => "C",
+    lang_stack => [],
+    lang_supported => {
+      "C" => "ExtUtils::CBuilder",
+    },
+    cache => {},
+    defines => {},
+    extra_libs => [],
+    extra_lib_dirs => [],
+    extra_include_dirs => [],
+    extra_preprocess_flags => [],
+    extra_compile_flags => {
+      "C" => [],
+    },
+    extra_link_flags => [],
+    logfile => "config.log",
+    %args
+  );
+  my $self = bless( \%instance, $class );
+
+  return $self;
+}
+
 =head2 check_file
 
 This function checks if a file exists in the system and is readable by
@@ -60,7 +108,7 @@ don't need to use a function call.
 =cut
 
 sub check_file {
-  my $class = shift;
+  my $self = shift;
   my $file = shift;
 
   return (-f $file && -r $file);
@@ -75,10 +123,10 @@ readable by the user. Returns a boolean.
 =cut
 
 sub check_files {
-  my $class = shift;
+  my $self = shift;
 
   for (@_) {
-    return 0 unless check_file($class, $_)
+    return 0 unless check_file($self, $_)
   }
 
   return 1;
@@ -93,7 +141,7 @@ returns the full path for the executable;
 =cut
 
 sub check_prog {
-  my $class = shift;
+  my $self = shift;
   # sanitize ac_prog
   my $ac_prog = _sanitize(shift());
   my $PATH = $ENV{PATH};
@@ -117,10 +165,10 @@ the first found on the system. Returns undef if none was found.
 =cut
 
 sub check_progs {
-  my $class = shift;
+  my $self = shift;
   my @progs = @_;
   for (@progs) {
-    my $ans = check_prog($class, $_);
+    my $ans = check_prog($self, $_);
     return $ans if $ans;
   }
   return undef;
@@ -139,8 +187,8 @@ Returns the full path, if found.
 =cut
 
 sub check_prog_yacc {
-	my $class = shift;
-	my $binary = check_progs(qw/$class bison byacc yacc/);
+	my $self = shift;
+	my $binary = check_progs(qw/$self bison byacc yacc/);
 	$binary .= " -y" if ($binary =~ /bison$/);
 	return $binary;
 }
@@ -159,8 +207,8 @@ Note that it returns the full path, if found.
 =cut
 
 sub check_prog_awk {
-  my $class = shift;
-  return check_progs(qw/$class gawk mawk nawk awk/);
+  my $self = shift;
+  return check_progs(qw/$self gawk mawk nawk awk/);
 }
 
 
@@ -176,16 +224,16 @@ Note that it returns the full path, if found.
 =cut
 
 sub check_prog_egrep {
-  my $class = shift;
+  my $self = shift;
 
   my $grep;
 
-  if ($grep = check_prog($class,"grep")) {
+  if ($grep = check_prog($self,"grep")) {
     my $ans = `echo a | ($grep -E '(a|b)') 2>/dev/null`;
     return "$grep -E" if $ans eq "a\n";
   }
 
-  if ($grep = check_prog($class, "egrep")) {
+  if ($grep = check_prog($self, "egrep")) {
     return $grep;
   }
   return undef;
@@ -201,6 +249,720 @@ sub check_cc {
   ExtUtils::CBuilder->new(quiet => 1)->have_compiler;
 }
 
+=head2 msg_checking
+
+Prints "Checking @_ ..."
+
+=cut
+
+sub msg_checking {
+  my $self = shift->_get_instance();
+  $self->{quiet} or
+    print "Checking " . join( " ", @_, "..." );
+  $self->_add2log( "Checking " . join( " ", @_, "..." ) );
+  return;
+}
+
+=head2 msg_result
+
+Prints result \n
+
+=cut
+
+sub msg_result {
+  my $self = shift->_get_instance();
+  $self->{quiet} or
+    print join( " ", map { looks_like_number( $_ ) ? ( $_ == 0 ? "no" : ( $_ == 1 ? "yes" : $_ ) ) : $_ } @_ ), "\n";
+  return;
+}
+
+=head2 msg_notice
+
+Prints "configure: " @_ to stdout
+
+=cut
+
+sub msg_notice {
+  my $self = shift->_get_instance();
+  $self->{quiet} or
+    print "configure: " . join( " ", @_ ) . "\n";
+  return;
+}
+
+=head2 msg_warn
+
+Prints "configure: " @_ to stderr
+
+=cut
+
+sub msg_warn {
+  my $self = shift->_get_instance();
+  $self->{quiet} or
+    print STDERR "configure: " . join( " ", @_ ) . "\n";
+  return;
+}
+
+=head2 msg_error
+
+Prints "configure: " @_ to stderr and exits with exit code 0 (tells
+toolchain to stop here and report unsupported enviroment)
+
+=cut
+
+sub msg_error {
+  my $self = shift->_get_instance();
+  $self->{quiet} or
+    print STDERR "configure: " . join( " ", @_ ) . "\n";
+  exit(0); # #toolchain agreement: prevents configure stage to finish
+}
+
+=head2 msg_failure
+
+Prints "configure: " @_ to stderr and exits with exit code 0 (tells
+toolchain to stop here and report unsupported enviroment). Additional
+details are provides in config.log (probably more information in a
+later stage).
+
+=cut
+
+sub msg_failure {
+  my $self = shift->_get_instance();
+  $self->{quiet} or
+    print STDERR "configure: " . join( " ", @_ ) . "\n";
+  exit(0); # #toolchain agreement: prevents configure stage to finish
+}
+
+=head2 define_var( $name, $value [, $comment ] )
+
+Defines a check variable for later use in further checks or code to compile.
+
+=cut
+
+sub define_var {
+  my $self = shift->_get_instance();
+  my ($name, $value, $comment) = @_;
+
+  defined( $name ) or croak( "Need a name to add a define" );
+
+  $self->{defines}->{$name} = [ $value, $comment ];
+
+  return;
+}
+
+=head2 write_config_h( [$target] )
+
+Writes the defined constants into given target:
+
+  Config::AutoConf->write_config_h( "config.h" );
+
+=cut
+
+sub write_config_h {
+  my $self = shift->_get_instance();
+  my $tgt;
+  
+  defined( $_[0] )
+    ? ( ref( $_[0] )
+      ? $tgt = $_[0]
+      : open( $tgt, ">", $_[0] ) )
+    : open( $tgt, ">", "config.h" );
+
+  my $conf_h = <<'EOC';
+/**
+ * Generated from Config::AutoConf
+ *
+ * Do not edit this file, all modifications will be lost,
+ * modify Makefile.PL or Build.PL instead.
+ *
+ * Inspired by GNU AutoConf.
+ *
+ * (c) 2011 Alberto Simoes & Jens Rehsack
+ */
+#ifndef __CONFIG_H__
+
+EOC
+
+  while( my ($defname, $defcnt) = each( %{ $self->{defines} } ) ) {
+    if( $defcnt->[0] ) {
+      defined $defcnt->[1] and $conf_h .= "/* " . $defcnt->[1] . " */\n";
+      $conf_h .= join( " ", "#define", $defname, $defcnt->[0] ) . "\n";
+    }
+    else {
+      defined $defcnt->[1] and $conf_h .= "/* " . $defcnt->[1] . " */\n";
+      $conf_h .= "/* " . join( " ", "#undef", $defname ) . " */\n\n";
+    }
+  }
+  $conf_h .= "#endif /* ?__CONFIG_H__ */\n";
+
+  print {$tgt} $conf_h;
+
+  return;
+}
+
+=head2 push_lang(lang [, implementor ])
+
+Puts the current used language on the stack and uses specified language
+for subsequent operations until ending pop_lang call.
+
+=cut
+
+sub push_lang {
+  my $self = shift->_get_instance();
+
+  push @{$self->{lang_stack}}, [ $self->{lang} ];
+
+  return $self->_set_language( @_ );
+}
+
+=head2 pop_lang([ lang ])
+
+Pops the currently used language from the stack and restores previously used
+language. If I<lang> specified, it's asserted that the current used language
+equals to specified language (helps finding control flow bugs).
+
+=cut
+
+sub pop_lang {
+  my $self = shift->_get_instance();
+
+  scalar( @{$self->{lang_stack}} ) > 0 or croak( "Language stack empty" );
+  defined( $_[0] ) and $self->{lang} ne $_[0] and
+    croak( "pop_lang( $_[0] ) doesn't match language in use (" . $self->{lang} . ")" );
+
+  return $self->_set_language( @{ pop @{ $self->{lang} } } );
+}
+
+=head2 lang_call( [prologue], function )
+
+Builds program which simply calls given function.
+When given, prologue is prepended otherwise, the default
+includes are used.
+
+=cut
+
+sub lang_call {
+  my $self = shift->_get_instance();
+  my ($prologue, $function) = @_;
+
+  defined( $prologue ) or $prologue = $self->_default_includes();
+  $prologue .= <<"_ACEOF";
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+char $function ();
+#ifdef __cplusplus
+}
+#endif
+_ACEOF
+  my $body = "return $function ();";
+  $body = $self->_build_main( $body );
+
+  my $conftest  = $self->_fill_defines();
+     $conftest .= "\n$prologue\n";
+     $conftest .= "\n$body\n";
+
+  return $conftest;
+}
+
+=head2 lang_build_program( prologue, body )
+
+Builds program for current chosen language. If no prologue is given
+(I<undef>), the default headers are used. If body is missing, default
+body is used.
+
+Typical call of
+
+  Config::AutoConf->lang_build_program( "const char hw[] = \"Hello, World\\n\";",
+                                        "fputs (hw, stdout);" )
+
+will create
+
+  const char hw[] = "Hello, World\n";
+
+  /* Override any gcc2 internal prototype to avoid an error.  */
+  #ifdef __cplusplus
+  extern "C" {
+  #endif
+
+  int
+  main (int argc, char **argv)
+  {
+    (void)argc;
+    (void)argv;
+    fputs (hw, stdout);;
+    return 0;
+  }
+
+  #ifdef __cplusplus
+  }
+  #endif
+
+=cut
+
+sub lang_build_program {
+  my $self = shift->_get_instance();
+  my ($prologue, $body) = @_;
+
+  defined( $prologue ) or $prologue = $self->_default_includes();
+  defined( $body ) or $body = "";
+  $body = $self->_build_main( $body );
+
+  my $conftest  = $self->_fill_defines();
+     $conftest .= "\n$prologue\n";
+     $conftest .= "\n$body\n";
+
+  return $conftest;
+}
+
+=head2 compile_if_else( $src [, action-if-true [, action-if-false ] ] )
+
+This function trys to compile specified code and runs action-if-true on success
+or action-if-false otherwise.
+
+Returns a boolean value containing check success state.
+
+=cut
+
+sub compile_if_else {
+  my ($self, $src, $action_if_true, $action_if_false) = @_;
+  ref $self or $self = $self->_get_instance();
+  my $builder = $self->_get_builder();
+
+  my ($fh, $filename) = tempfile( "testXXXXXX", SUFFIX => '.c');
+
+  print {$fh} $src;
+  close $fh;
+
+  my ($obj_file, $errbuf, $exception);
+  (undef, $errbuf) = capture {
+    eval {
+      $obj_file = $builder->compile(
+        source => $filename,
+        include_dirs => $self->{extra_include_dirs},
+        extra_compiler_flags => $self->_get_extra_compiler_flags() );
+    };
+
+    $exception = $@;
+  };
+
+  unlink $filename;
+  unlink $obj_file if $obj_file;
+
+  if ($exception || !$obj_file) {
+    $self->_add2log( "compile stage failed" . ( $exception ? " - " . $exception : "" ) );
+    $errbuf and
+      $self->_add2log( $errbuf );
+    $self->_add2log( "failing program is:\n" . $src );
+
+    defined( $action_if_false ) and "CODE" eq ref( $action_if_false ) and &{$action_if_false}();
+    return 0;
+  }
+
+  defined( $action_if_true ) and "CODE" eq ref( $action_if_true ) and &{$action_if_true}();
+  return 1;
+}
+
+=head2 link_if_else( $src [, action-if-true [, action-if-false ] ] )
+
+This function trys to compile and link specified code and runs action-if-true on success
+or action-if-false otherwise.
+
+Returns a boolean value containing check success state.
+
+=cut
+
+sub link_if_else {
+  my ($self, $src, $action_if_true, $action_if_false) = @_;
+  ref $self or $self = $self->_get_instance();
+  my $builder = $self->_get_builder();
+
+  my ($fh, $filename) = tempfile( "testXXXXXX", SUFFIX => '.c');
+
+  print {$fh} $src;
+  close $fh;
+
+  my ($obj_file, $errbuf, $exception);
+  (undef, $errbuf) = capture {
+    eval {
+      $obj_file = $builder->compile(
+        source => $filename,
+        include_dirs => $self->{extra_include_dirs},
+        extra_compiler_flags => $self->_get_extra_compiler_flags() );
+    };
+
+    $exception = $@;
+  };
+
+  if ($exception || !$obj_file) {
+    $self->_add2log( "compile stage failed" . ( $exception ? " - " . $exception : "" ) );
+    $errbuf and
+      $self->_add2log( $errbuf );
+    $self->_add2log( "failing program is:\n" . $src );
+
+    unlink $filename;
+    unlink $obj_file if $obj_file;
+    defined( $action_if_false ) and "CODE" eq ref( $action_if_false ) and &{$action_if_false}();
+    return 0;
+  }
+
+  my $exe_file;
+  (undef, $errbuf) = capture {
+    eval {
+      $exe_file = $builder->link_executable(
+        objects => $obj_file,
+        extra_linker_flags => $self->_get_extra_linker_flags() );
+    };
+
+    $exception = $@;
+  };
+  unlink $filename;
+  unlink $obj_file if $obj_file;
+  unlink $exe_file if $exe_file;
+
+  if ($exception || !$exe_file) {
+    $self->_add2log( "link stage failed" . ( $exception ? " - " . $exception : "" ) );
+    $errbuf and
+      $self->_add2log( $errbuf );
+    $self->_add2log( "failing program is:\n" . $src );
+
+    defined( $action_if_false ) and "CODE" eq ref( $action_if_false ) and &{$action_if_false}();
+    return 0;
+  }
+
+  defined( $action_if_true ) and "CODE" eq ref( $action_if_true ) and &{$action_if_true}();
+  return 1;
+}
+
+=head2 check_cached( cache-var, message, sub-to-check )
+
+This function checks whether a specified cache variable is set or not, and if not
+it's going to set it using specified sub-to-check.
+
+=cut
+
+sub check_cached {
+  my ($self, $cache_name, $message, $check_sub) = @_;
+  ref $self or $self = $self->_get_instance();
+
+  $self->msg_checking( $message );
+
+  if( defined($self->{cache}->{$cache_name}) ) {
+    $self->msg_result( "(cached)", $self->{cache}->{$cache_name} );
+  }
+  else {
+    $self->{cache}->{$cache_name} = &{$check_sub}();
+    $self->msg_result( $self->{cache}->{$cache_name} );
+  }
+
+  return $self->{cache}->{$cache_name};
+}
+
+=head2 cache_val
+
+This functions returns the value of a previously check_cached call.
+
+=cut
+
+sub cache_val {
+  my $self = shift->_get_instance();
+  my $cache_name = shift;
+  defined $self->{cache}->{$cache_name} or return;
+  return $self->{cache}->{$cache_name};
+}
+
+=head2 check_decl( symbol, [action-if-found], [action-if-not-found], [prologue = default includes] )
+
+If symbol (a function, variable or constant) is not declared in includes and
+a declaration is needed, run the code ref given in I<action-if-not-found>,
+otherwise I<action-if-found>. includes is a series of include directives,
+defaulting to I<default includes>, which are used prior to the declaration
+under test.
+
+This method actually tests whether symbol is defined as a macro or can be
+used as an r-value, not whether it is really declared, because it is much
+safer to avoid introducing extra declarations when they are not needed.
+In order to facilitate use of C++ and overloaded function declarations, it
+is possible to specify function argument types in parentheses for types
+which can be zero-initialized:
+
+          Config::AutoConf->check_decl("basename(char *)")
+
+This method caches its result in the C<ac_cv_decl_E<lt>set langE<gt>>_symbol variable.
+
+=cut
+
+sub check_decl {
+  my ($self, $symbol, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+  defined( $symbol ) or return; # XXX prefer croak
+  ref( $symbol ) eq "" or return;
+  ( my $sym_plain = $symbol ) =~ s/ *\(.*//;
+  my $sym_call = $symbol;
+  $sym_call =~ s/\(/((/;
+  $sym_call =~ s/\)/) 0)/;
+  $sym_call =~ s/,/) 0, (/g;
+
+  my $cache_name = $self->_cache_name( "decl", $self->{lang}, $symbol );
+  my $check_sub = sub {
+  
+    my $body = <<ACEOF;
+#ifndef $sym_plain
+  (void) $sym_call;
+#endif
+ACEOF
+    my $conftest = $self->lang_build_program( $prologue, $body );
+
+    my $have_decl = $self->compile_if_else( $conftest );
+    if( $have_decl ) {
+      if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+	&{$action_if_found}();
+      }
+    }
+    else {
+      if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+	&{$action_if_not_found}();
+      }
+    }
+
+    return $have_decl;
+  };
+
+  return $self->check_cached( $cache_name, "whether $symbol is declared", $check_sub );
+}
+
+=head2 check_decls( symbols, [action-if-found], [action-if-not-found], [prologue = default includes] )
+
+For each of the symbols (with optional function argument types for C++
+overloads), run L<check_decl>. If I<action-if-not-found> is given, it
+is additional code to execute when one of the symbol declarations is
+needed, otherwise I<action-if-found> is executed.
+
+Contrary to GNU autoconf, this method does not declare HAVE_DECL_symbol
+macros for the resulting C<confdefs.h>, because it differs as C<check_decl>
+between compiling languages.
+
+=cut
+
+sub check_decls {
+  my ($self, $symbols, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+
+  my $have_syms = 1;
+  foreach my $symbol (@$symbols) {
+    $have_syms &= $self->check_decl( $symbol, undef, undef, $prologue );
+  }
+
+  if( $have_syms ) {
+    if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+      &{$action_if_found}();
+    }
+  }
+  else {
+    if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+      &{$action_if_not_found}();
+    }
+  }
+
+  return $have_syms;
+}
+
+sub _have_type_define_name {
+  my $type = $_[0];
+  my $have_name = "HAVE_" . uc($type);
+  $have_name =~ tr/*/P/;
+  $have_name =~ tr/_A-Za-z0-9/_/c;
+  return $have_name;
+}
+
+=head2 check_type (type, [action-if-found], [action-if-not-found], [prologue = default includes])
+
+Check whether type is defined. It may be a compiler builtin type or defined
+by the includes. I<prologue> should be a series of include directives,
+defaulting to I<default includes>, which are used prior to the type under
+test.
+
+In C, type must be a type-name, so that the expression C<sizeof (type)> is
+valid (but C<sizeof ((type))> is not)
+
+If I<type> type is defined, preprocessor macro HAVE_I<type> (in all
+capitals, with "*" replaced by "P" and spaces and dots replaced by
+underscores) is defined.
+
+This macro caches its result in the C<ac_cv_type_>type variable.
+
+=cut
+
+sub check_type {
+  my ($self, $type, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+  defined( $type ) or return; # XXX prefer croak
+  ref( $type ) eq "" or return;
+
+  my $cache_name = $self->_cache_type_name( "type", $type );
+  my $check_sub = sub {
+  
+    my $body = <<ACEOF;
+  if( sizeof ($type) )
+    return 0;
+ACEOF
+    my $conftest = $self->lang_build_program( $prologue, $body );
+
+    my $have_type = $self->compile_if_else( $conftest );
+    $self->define_var( _have_type_define_name( $type ), $have_type ? $have_type : undef, "defined when $type is available" );
+    if( $have_type ) {
+      if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+	&{$action_if_found}();
+      }
+    }
+    else {
+      if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+	&{$action_if_not_found}();
+      }
+    }
+
+    return $have_type;
+  };
+
+  return $self->check_cached( $cache_name, "for $type", $check_sub );
+}
+
+=head2 check_types (types, [action-if-found], [action-if-not-found], [prologue = default includes])
+
+For each type L<check_type> is called to check for type.
+
+If I<action-if-found> is given, it is additionally executed when all of the
+types are found. If I<action-if-not-found> is given, it is executed when one
+of the types is not found.
+
+=cut
+
+sub check_types {
+  my ($self, $types, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+
+  my $have_types = 1;
+  foreach my $type (@$types) {
+    $have_types &= $self->check_type( $type, undef, undef, $prologue );
+  }
+
+  if( $have_types ) {
+    if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+      &{$action_if_found}();
+    }
+  }
+  else {
+    if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+      &{$action_if_not_found}();
+    }
+  }
+
+  return $have_types;
+}
+
+sub _have_member_define_name {
+  my $member = $_[0];
+  my $have_name = "HAVE_" . uc($member);
+  $have_name =~ tr/_A-Za-z0-9/_/c;
+  return $have_name;
+}
+
+=head2 check_member (member, [action-if-found], [action-if-not-found], [prologue = default includes])
+
+Check whether I<member> is in form of I<aggregate>.I<member> and
+I<member> is a member of the I<aggregate> aggregate. I<prologue>
+should be a series of include directives, defaulting to
+I<default includes>, which are used prior to the aggregate under test.
+
+  Config::AutoConf->check_member(
+    "struct STRUCT_SV.sv_refcnt",
+    undef,
+    sub { Config::AutoConf->msg_failure( "sv_refcnt member required for struct STRUCT_SV" ); }
+    "#include <EXTERN.h>\n#include <perl.h>"
+  );
+
+If I<aggregate> aggregate has I<member> member, preprocessor
+macro HAVE_I<aggregate>_I<MEMBER> (in all capitals, with spaces
+and dots replaced by underscores) is defined.
+
+This macro caches its result in the C<ac_cv_>aggr_member variable.
+
+=cut
+
+sub check_member {
+  my ($self, $member, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+  defined( $member ) or return; # XXX prefer croak
+  ref( $member ) eq "" or return;
+
+  $member =~ m/^([^.]+)\.([^.]+)$/ or return;
+  my $type = $1;
+  $member = $2;
+
+  my $cache_name = $self->_cache_type_name( "member", $type );
+  my $check_sub = sub {
+  
+    my $body = <<ACEOF;
+  static $type check_aggr;
+  if( check_aggr.$member )
+    return 0;
+ACEOF
+    my $conftest = $self->lang_build_program( $prologue, $body );
+
+    my $have_member = $self->compile_if_else( $conftest );
+    $self->define_var( _have_member_define_name( $member ), $have_member ? $have_member : undef, "defined when $member is available" );
+    if( $have_member ) {
+      if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+	&{$action_if_found}();
+      }
+    }
+    else {
+      if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+	&{$action_if_not_found}();
+      }
+    }
+
+    return $have_member;
+  };
+
+  return $self->check_cached( $cache_name, "for $type.$member", $check_sub );
+}
+
+=head2 check_members (members, [action-if-found], [action-if-not-found], [prologue = default includes])
+
+For each member L<check_member> is called to check for member of aggregate.
+
+If I<action-if-found> is given, it is additionally executed when all of the
+aggregate members are found. If I<action-if-not-found> is given, it is
+executed when one of the aggregate members is not found.
+
+=cut
+
+sub check_members {
+  my ($self, $members, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+
+  my $have_members = 1;
+  foreach my $member (@$members) {
+    $have_members &= $self->check_member( $member, undef, undef, $prologue );
+  }
+
+  if( $have_members ) {
+    if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+      &{$action_if_found}();
+    }
+  }
+  else {
+    if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+      &{$action_if_not_found}();
+    }
+  }
+
+  return $have_members;
+}
+
 =head2 check_headers
 
 This function uses check_header to check if a set of include files exist in the system and can
@@ -209,15 +971,21 @@ be included and compiled by the available compiler. Returns the name of the firs
 =cut
 
 sub check_headers {
-  my $class = shift;
+  my $self = shift;
 
   for (@_) {
-    return $_ if check_header($class, $_)
+    return $_ if check_header($self, $_)
   }
 
   return undef;
 }
 
+sub _have_header_define_name {
+  my $header = $_[0];
+  my $have_name = "HAVE_" . uc($header);
+  $have_name =~ tr/_A-Za-z0-9/_/c;
+  return $have_name;
+}
 
 =head2 check_header
 
@@ -236,58 +1004,91 @@ if the header is not present or not available for common usage.
 =cut
 
 sub check_header {
-    my $class = shift;
-    my $header = shift;
-    
-    my $cbuilder = ExtUtils::CBuilder->new(quiet => 1);
-    
-    return 0 unless $header;
-    
-    # print STDERR "Trying to compile a test program to check [$header] availability...\n";
-    
-    my $conftest = <<"_ACEOF";
-    /* Override any gcc2 internal prototype to avoid an error.  */
-    #ifdef __cplusplus
-    extern "C"
-    #endif
-
+  my $self = shift;
+  my $header = shift;
+  my $pre_inc = shift;
+  
+  return 0 unless $header;
+  my $cache_name = $self->_cache_name( $header );
+  my $check_sub = sub {
+  
+    my $prologue  = "";
+    defined $pre_inc
+      and $prologue .= "$pre_inc\n";
+       $prologue .= <<"_ACEOF";
     #include <$header>
-
-    int
-    main ()
-    {
-      return 0;
-    }    
 _ACEOF
+    my $conftest = $self->lang_build_program( $prologue, "" );
 
-    my ($fh, $filename) = tempfile( "testXXXXXX", SUFFIX => '.c');
-    $filename =~ m!^(.*).c$!;
-    my $base = $1;
+    my $have_header = $self->compile_if_else( $conftest );
+    $self->define_var( _have_header_define_name( $header ), $have_header ? $have_header : undef, "defined when $header is available" );
 
-    print {$fh} $conftest;
-    close $fh;
+    return $have_header;
+  };
 
-    my $obj_file = eval{ $cbuilder->compile(source => $filename) };
-
-    if ($@ || !$obj_file) {
-        unlink $filename;
-        unlink $obj_file if $obj_file;        
-        return 0         
-    }
-
-    my $exe_file = eval { $cbuilder->link_executable(objects => $obj_file) };
-
-    unlink $filename;
-    unlink $obj_file if $obj_file;
-    unlink $exe_file if $exe_file;
-
-    return 0 if $@;
-    return 0 unless $exe_file;
-
-    return 1;
+  return $self->check_cached( $cache_name, "for $header", $check_sub );
 }
 
-=head2 check_lib
+=head2 check_all_headers
+
+This function checks each given header for usability.
+
+=cut
+
+sub check_all_headers {
+  my $self = shift->_get_instance();
+  @_ or return;
+  my $rc = 1;
+  foreach my $header (@_) {
+    $rc &= $self->check_header( $header );
+  }
+  return $rc;
+}
+
+=head2 check_stdc_headers
+
+Checks for standard C89 headers, namely stdlib.h, stdarg.h, string.h and float.h.
+If those are found, additional all remaining C89 headers are checked: assert.h,
+ctype.h, errno.h, limits.h, locale.h, math.h, setjmp.h, signal.h, stddef.h,
+stdio.h and time.h.
+
+=cut
+
+sub check_stdc_headers {
+  my $self = shift->_get_instance();
+  my $rc = 0;
+  if( $rc = $self->check_all_headers( qw(stdlib.h stdarg.h string.h float.h) ) ) {
+    $rc &= $self->check_all_headers( qw/assert.h ctype.h errno.h limits.h/ );
+    $rc &= $self->check_all_headers( qw/locale.h math.h setjmp.h signal.h/ );
+    $rc &= $self->check_all_headers( qw/stddef.h stdio.h time.h/ );
+  }
+  if( $rc ) {
+    $self->define_var( "STDC_HEADERS", 1, "Define to 1 if you have the ANSI C header files." );
+  }
+  return $rc;
+}
+
+=head2 check_default_headers
+
+This function checks for some default headers, the std c89 haeders and
+sys/types.h, sys/stat.h, memory.h, strings.h, inttypes.h, stdint.h and unistd.h
+
+=cut
+
+sub check_default_headers {
+  my $self = shift->_get_instance();
+  my $rc = $self->check_stdc_headers() and $self->check_all_headers( qw(sys/types.h sys/stat.h memory.h strings.h inttypes.h unistd.h) );
+  return $rc;
+}
+
+sub _have_lib_define_name {
+  my $lib = $_[0];
+  my $have_name = "HAVE_LIB" . uc($lib);
+  $have_name =~ tr/_A-Za-z0-9/_/c;
+  return $have_name;
+}
+
+=head2 check_lib( lib, func, [ action-if-found ], [ action-if-not-found ], [ @other-libs ] )
 
 This function is used to check if a specific library includes some
 function. Call it with the library name (without the lib portion), and
@@ -297,65 +1098,138 @@ the name of the function you want to test:
 
 It returns 1 if the function exist, 0 otherwise.
 
+I<action-if-found> and I<action-if-not-found> can be CODE references
+whereby the default action in case of function found is to define
+the HAVE_LIBlibrary (all in capitals) preprocessor macro with 1 and
+add $lib to the list of libraries to link.
+
+If linking with library results in unresolved symbols that would be
+resolved by linking with additional libraries, give those libraries
+as the I<other-libs> argument: e.g., C<[qw(Xt X11)]>.
+Otherwise, this routine may fail to detect that library is present,
+because linking the test program can fail with unresolved symbols.
+The other-libraries argument should be limited to cases where it is
+desirable to test for one library in the presence of another that
+is not already in LIBS. 
+
+It's recommended to use L<search_libs> instead of check_lib these days.
+
 =cut
 
 sub check_lib {
-  my $class = shift;
-  my $lib = shift;
-  my $func = shift;
+    my ( $self, $lib, $func, $action_if_found, $action_if_not_found, @other_libs ) = @_;
+    ref($self) or $self = $self->_get_instance();
 
-  my $cbuilder = ExtUtils::CBuilder->new(quiet => 1);
+    return 0 unless $lib;
+    return 0 unless $func;
 
-  return 0 unless $lib;
+    scalar( @other_libs ) == 1 and ref( $other_libs[0] ) eq "ARRAY"
+      and @other_libs = @{ $other_libs[0] };
+
+    my $cache_name = $self->_cache_name( "lib", $lib, $func );
+    my $check_sub = sub {
+        my $conftest = $self->lang_call( "", $func );
+
+        my @save_libs = @{$self->{extra_libs}};
+        push( @{$self->{extra_libs}}, $lib, @other_libs );
+    my $have_lib = $self->link_if_else( $conftest );
+    $self->{extra_libs} = [ @save_libs ];
+
+    if( $have_lib ) {
+      if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+	&{$action_if_found}();
+      }
+      else {
+	$self->define_var( _have_lib_define_name( $lib ), $have_lib, "defined when library $lib is available" );
+	push( @{$self->{extra_libs}}, $lib );
+      }
+    }
+    else {
+      if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+	&{$action_if_not_found}();
+      }
+      else {
+	$self->define_var( _have_lib_define_name( $lib ), undef, "defined when library $lib is available" );
+      }
+    }
+
+    return $have_lib;
+  };
+
+  return $self->check_cached( $cache_name, "for $func in -l$lib", $check_sub );
+}
+
+=head2 search_libs( function, search-libs, [action-if-found], [action-if-not-found], [other-libs] )
+
+Search for a library defining function if it's not already available.
+This equates to calling
+
+    Config::AutoConf->link_if_else(
+        Config::AutoConf->lang_call( "", "$function" ) );
+
+first with no libraries, then for each library listed in search-libs.
+I<search-libs> must be specified as an array reference to avoid
+confusion in argument order.
+
+Prepend -llibrary to LIBS for the first library found to contain function,
+and run I<action-if-found>. If the function is not found, run
+I<action-if-not-found>.
+
+If linking with library results in unresolved symbols that would be
+resolved by linking with additional libraries, give those libraries as
+the I<other-libraries> argument: e.g., C<[qw(Xt X11)]>. Otherwise, this
+method fails to detect that function is present, because linking the
+test program always fails with unresolved symbols.
+
+The result of this test is cached in the ac_cv_search_function variable
+as "none required" if function is already available, as C<0> if no
+library containing function was found, otherwise as the -llibrary option
+that needs to be prepended to LIBS.
+
+=cut
+
+sub search_libs {
+  my ( $self, $func, $libs, $action_if_found, $action_if_not_found, @other_libs ) = @_;
+  ref($self) or $self = $self->_get_instance();
+  
+  ( defined( $libs ) and "ARRAY" eq ref( $libs ) and scalar( @{$libs} ) > 0 )
+    or return 0; # XXX would prefer croak
   return 0 unless $func;
 
-  # print STDERR "Trying to compile test program to check [$func] on [$lib] library...\n";
+  scalar( @other_libs ) == 1 and ref( $other_libs[0] ) eq "ARRAY"
+    and @other_libs = @{ $other_libs[0] };
 
-  my $LIBS = "-l$lib";
-  my $conftest = <<"_ACEOF";
-/* Override any gcc2 internal prototype to avoid an error.  */
-#ifdef __cplusplus
-extern "C"
-#endif
-/* We use char because int might match the return type of a gcc2
-   builtin and then its argument prototype would still apply.  */
-char $func ();
-int
-main ()
-{
-  $func ();
-  return 0;
-}
-_ACEOF
+  my $cache_name = $self->_cache_name( "search", $func );
+  my $check_sub = sub {
+  
+    my $conftest = $self->lang_call( "", $func );
 
+    my @save_libs = @{$self->{extra_libs}};
+    my $have_lib = 0;
+    foreach my $libstest ( undef, @$libs ) {
+      # XXX would local work on array refs? can we omit @save_libs?
+      $self->{extra_libs} = [ @save_libs ];
+      defined( $libstest ) and unshift( @{$self->{extra_libs}}, $libstest, @other_libs );
+      $self->link_if_else( $conftest ) and ( $have_lib = defined( $libstest ) ? $libstest : "none required" ) and last;
+    }
+    $self->{extra_libs} = [ @save_libs ];
+    if( $have_lib ) {
+      $have_lib eq "none required" or unshift( @{$self->{extra_libs}}, $have_lib );
 
+      if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+	&{$action_if_found}();
+      }
+    }
+    else {
+      if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+	&{$action_if_not_found}();
+      }
+    }
 
-  my ($fh, $filename) = tempfile( "testXXXXXX", SUFFIX => '.c');
-  $filename =~ m!(.*).c$!;
-  my $base = $1;
+    return $have_lib;
+  };
 
-  print {$fh} $conftest;
-  close $fh;
-
-  my $obj_file = eval{ $cbuilder->compile(source => $filename) };
-
-  if ($@ || !$obj_file) {
-      unlink $filename;
-      unlink $obj_file if $obj_file;        
-      return 0         
-  }
-
-  my $exe_file = eval { $cbuilder->link_executable(objects => $obj_file,
-						   extra_linker_flags => $LIBS) };
-
-  unlink $filename;
-  unlink $obj_file if $obj_file;
-  unlink $exe_file if $exe_file;
-
-  return 0 if $@;
-  return 0 unless $exe_file;
-
-  return 1;
+  return $self->check_cached( $cache_name, "for library containing $func", $check_sub );
 }
 
 #
@@ -372,10 +1246,220 @@ sub _sanitize {
   return $x;
 }
 
+sub _get_instance {
+  my $class = shift;
+  ref $class and return $class;
+  defined( $glob_instance ) and ref( $glob_instance ) and return $glob_instance;
+  $glob_instance = $class->new();
+  return $glob_instance;
+}
+
+sub _get_builder {
+  my $self = $_[0]->_get_instance();
+  defined( $self->{lang_supported}->{ $self->{lang} } ) or croak( "Unsupported compile language \"" . $self->{lang} . "\"" );
+  return $self->{lang_supported}->{ $self->{lang} }->new( quiet => 1 );
+}
+
+sub _set_language {
+  my $self = shift->_get_instance();
+  my ($lang, $impl) = @_;
+
+  defined( $lang ) or croak( "Missing language" );
+
+  defined( $impl ) and defined( $self->{lang_supported}->{$lang} )
+    and $impl ne $self->{lang_supported}->{$lang}
+    and croak( "Language implementor ($impl) doesn't match exisiting one (" . $self->{lang_supported}->{$lang} . ")" );
+
+  defined( $impl ) and !defined( $self->{lang_supported}->{$lang} )
+    and $self->{lang_supported}->{$lang} = $impl;
+
+  defined( $self->{lang_supported}->{$lang} ) or croak( "Unsupported language \"$lang\"" );
+
+  defined( $self->{extra_compile_flags}->{$lang} ) or $self->{extra_compile_flags}->{$lang} = [];
+
+  $self->{lang} = $lang;
+
+  return;
+}
+
+sub _fill_defines {
+  my ($self, $src, $action_if_true, $action_if_false) = @_;
+  ref $self or $self = $self->_get_instance();
+
+  my $conftest = "";
+  while( my ($defname, $defcnt) = each( %{ $self->{defines} } ) ) {
+    $defcnt->[0] or next;
+    defined $defcnt->[1] and $conftest .= "/* " . $defcnt->[1] . " */\n";
+    $conftest .= join( " ", "#define", $defname, $defcnt->[0] ) . "\n";
+  }
+  $conftest .= "/* end of conftest.h */\n";
+
+  return $conftest;
+}
+
+#
+# default includes taken from autoconf/headers.m4
+#
+
+=head2 _default_includes
+
+returns a string containing default includes for program prologue taken
+from autoconf/headers.m4:
+
+  #include <stdio.h>
+  #ifdef HAVE_SYS_TYPES_H
+  # include <sys/types.h>
+  #endif
+  #ifdef HAVE_SYS_STAT_H
+  # include <sys/stat.h>
+  #endif
+  #ifdef STDC_HEADERS
+  # include <stdlib.h>
+  # include <stddef.h>
+  #else
+  # ifdef HAVE_STDLIB_H
+  #  include <stdlib.h>
+  # endif
+  #endif
+  #ifdef HAVE_STRING_H
+  # if !defined STDC_HEADERS && defined HAVE_MEMORY_H
+  #  include <memory.h>
+  # endif
+  # include <string.h>
+  #endif
+  #ifdef HAVE_STRINGS_H
+  # include <strings.h>
+  #endif
+  #ifdef HAVE_INTTYPES_H
+  # include <inttypes.h>
+  #endif
+  #ifdef HAVE_STDINT_H
+  # include <stdint.h>
+  #endif
+  #ifdef HAVE_UNISTD_H
+  # include <unistd.h>
+  #endif
+
+=cut
+
+sub _default_includes {
+  my $conftest .= <<"_ACEOF";
+#include <stdio.h>
+#ifdef HAVE_SYS_TYPES_H
+# include <sys/types.h>
+#endif
+#ifdef HAVE_SYS_STAT_H
+# include <sys/stat.h>
+#endif
+#ifdef STDC_HEADERS
+# include <stdlib.h>
+# include <stddef.h>
+#else
+# ifdef HAVE_STDLIB_H
+#  include <stdlib.h>
+# endif
+#endif
+#ifdef HAVE_STRING_H
+# if !defined STDC_HEADERS && defined HAVE_MEMORY_H
+#  include <memory.h>
+# endif
+# include <string.h>
+#endif
+#ifdef HAVE_STRINGS_H
+# include <strings.h>
+#endif
+#ifdef HAVE_INTTYPES_H
+# include <inttypes.h>
+#endif
+#ifdef HAVE_STDINT_H
+# include <stdint.h>
+#endif
+#ifdef HAVE_UNISTD_H
+# include <unistd.h>
+#endif
+_ACEOF
+
+  return $conftest;
+}
+
+sub _default_main {
+  return $_[0]->_build_main("");
+}
+
+sub _build_main {
+  my $self = shift->_get_instance();
+  my $body = shift || "";
+
+  my $conftest .= <<"_ACEOF";
+  int
+  main ()
+  {
+    $body;
+    return 0;
+  }
+_ACEOF
+
+  return $conftest;
+}
+
+sub _cache_prefix {
+  return "ac";
+}
+
+sub _cache_name {
+  my ($self, @names) = @_;
+  my $cache_name = join( "_", $self->_cache_prefix(), "cv", @names );
+     $cache_name =~ tr/_A-Za-z0-9/_/c;
+  if( $cache_name eq "ac_cv_0_0" ) {
+    Test::More::diag( "break here" );
+  }
+  return $cache_name;
+}
+
+sub _get_log_fh {
+  my $self = $_[0]->_get_instance();
+  unless( defined( $self->{logfh} ) ) {
+    open( $self->{logfh}, ">", $self->{logfile} ) or croak "Could not open file $self->{logfile}: $!";
+  }
+
+  return $self->{logfh};
+}
+
+sub _add2log {
+  my ($self, @logentries) = @_;
+  ref($self) or $self = $self->_get_instance();
+  $self->_get_log_fh();
+  foreach my $logentry (@logentries) {
+    print {$self->{logfh}} "$logentry\n";
+  }
+
+  return;
+}
+
+sub _cache_type_name  {
+  my ($self, @names) = @_;
+  return $self->_cache_name( map { $_ =~ tr/*/p/; $_ } @names );
+}
+
+sub _get_extra_compiler_flags {
+  my $self = shift->_get_instance();
+  my @ppflags = @{$self->{extra_preprocess_flags}};
+  my @cflags = @{$self->{extra_compile_flags}->{ $self->{lang} }};
+  return join( " ", @ppflags, @cflags );
+}
+
+sub _get_extra_linker_flags {
+  my $self = shift->_get_instance();
+  my @libs = @{$self->{extra_libs}};
+  my @ldflags = @{$self->{extra_link_flags}};
+  return join( " ", @ldflags, map { "-l$_" } @libs );
+}
 
 =head1 AUTHOR
 
-Alberto Simıes, C<< <ambs@cpan.org> >>
+Alberto Sim√µes, C<< <ambs@cpan.org> >>
+
+Jens Rehsack, C<< <rehsack@cpan.org> >>
 
 =head1 NEXT STEPS
 
@@ -410,7 +1494,7 @@ Ken Williams for ExtUtils::CBuilder
 
 =head1 COPYRIGHT & LICENSE
 
-Copyright 2004-2005 Alberto Simıes, All Rights Reserved.
+Copyright 2004-2011 by the Authors
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.
