@@ -21,4 +21,4 @@ requires:
   Capture::Tiny: 0
   ExtUtils::CBuilder: 0.23
   Test::More: 0
-version: 0.17_01
+version: 0.17_02
