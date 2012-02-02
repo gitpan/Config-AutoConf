@@ -1,6 +1,6 @@
 # -*- cperl -*-
 
-use Test::More tests => 17;
+use Test::More tests => 24;
 
 use Config::AutoConf;
 
@@ -24,6 +24,10 @@ ok( !$@, "check_default_headers" ) or diag( $@ );
 ## we should find at least a stdio.h ...
 note( "Checking for cache value " . $ac->_cache_name( "stdio.h" ) );
 ok( $ac->cache_val( $ac->_cache_name( "stdio.h" ) ), "found stdio.h" );
+
+# some complex header tests for wide OS support
+eval { $ac->check_dirent_header(); };
+ok( !$@, "check_dirent_header" ) or diag( $@ );
 
 # check predeclared symbol
 # as we test a perl module, we expect perl.h available and suitable
@@ -51,6 +55,16 @@ ok $ac->check_type( "I32", undef, undef, $include_perl ),
 ok $ac->check_types( ["SV *", "AV *", "HV *" ], undef, undef, $include_perl ),
   "[SAH]V * are valid types" ;
 
+# check size of perl types
+my $typesize = $ac->check_sizeof_type( "I32", undef, undef, $include_perl );
+ok $typesize, "I32 has size of " . ($typesize ? $typesize : "n/a") . " bytes";
+
+ok $ac->check_sizeof_types( ["I32", "SV *", "AV", "HV *", "SV.sv_refcnt" ], undef, undef, $include_perl ),
+  "Could determined sizes for I32, SV *, AV, HV *, SV.sv_refcnt" ;
+
+my $compute = $ac->compute_int( "-sizeof(I32)", undef, $include_perl );
+ok $typesize + $compute == 0, "Compute (-sizeof(I32)";
+
 # check perl data structure members
 ok $ac->check_member( "struct av.sv_any", undef, undef, $include_perl ),
   "have struct av.sv_any member";
@@ -58,6 +72,14 @@ ok $ac->check_member( "struct av.sv_any", undef, undef, $include_perl ),
 ok $ac->check_members( ["struct hv.sv_any", "struct STRUCT_SV.sv_any"],
                        undef, undef, $include_perl ),
   "have struct hv.sv_any and struct STRUCT_SV.sv_any members";
+
+# check aligning
+ok $ac->check_alignof_type( "I32", undef, undef, $include_perl ),
+  "Align of I32";
+ok $ac->check_alignof_type( "SV.sv_refcnt", undef, undef, $include_perl ),
+  "Align of SV.sv_refcnt";
+ok $ac->check_alignof_types( ["I32", "U32", "AV", "HV *", "SV.sv_refcnt" ], undef, undef, $include_perl ),
+  "Could determined sizes for I32, U32, AV, HV *, SV.sv_refcnt" ;
 
 Config::AutoConf->write_config_h();
 ok( -f "config.h", "default config.h created" );

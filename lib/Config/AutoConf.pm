@@ -31,7 +31,7 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =cut
 
-our $VERSION = '0.17';
+our $VERSION = '0.18';
 
 =head1 ABSTRACT
 
@@ -76,6 +76,7 @@ sub new {
   my %args = @_;
 
   my %instance = (
+    msg_prefix => 'configure: ',
     lang => "C",
     lang_stack => [],
     lang_supported => {
@@ -285,7 +286,7 @@ Prints "configure: " @_ to stdout
 sub msg_notice {
   my $self = shift->_get_instance();
   $self->{quiet} or
-    print "configure: " . join( " ", @_ ) . "\n";
+    print $self->{msg_prefix} . join( " ", @_ ) . "\n";
   return;
 }
 
@@ -298,28 +299,28 @@ Prints "configure: " @_ to stderr
 sub msg_warn {
   my $self = shift->_get_instance();
   $self->{quiet} or
-    print STDERR "configure: " . join( " ", @_ ) . "\n";
+    print STDERR $self->{msg_prefix} . join( " ", @_ ) . "\n";
   return;
 }
 
 =head2 msg_error
 
 Prints "configure: " @_ to stderr and exits with exit code 0 (tells
-toolchain to stop here and report unsupported enviroment)
+toolchain to stop here and report unsupported environment)
 
 =cut
 
 sub msg_error {
   my $self = shift->_get_instance();
   $self->{quiet} or
-    print STDERR "configure: " . join( " ", @_ ) . "\n";
+    print STDERR $self->{msg_prefix} . join( " ", @_ ) . "\n";
   exit(0); # #toolchain agreement: prevents configure stage to finish
 }
 
 =head2 msg_failure
 
 Prints "configure: " @_ to stderr and exits with exit code 0 (tells
-toolchain to stop here and report unsupported enviroment). Additional
+toolchain to stop here and report unsupported environment). Additional
 details are provides in config.log (probably more information in a
 later stage).
 
@@ -328,7 +329,7 @@ later stage).
 sub msg_failure {
   my $self = shift->_get_instance();
   $self->{quiet} or
-    print STDERR "configure: " . join( " ", @_ ) . "\n";
+    print STDERR $self->{msg_prefix} . join( " ", @_ ) . "\n";
   exit(0); # #toolchain agreement: prevents configure stage to finish
 }
 
@@ -515,6 +516,129 @@ sub lang_build_program {
      $conftest .= "\n$body\n";
 
   return $conftest;
+}
+
+=head2 lang_build_bool_test (prologue, test, [@decls])
+
+Builds a static test which will fail to compile when test
+evaluates to false. If C<@decls> is given, it's prepended
+before the test code at the variable definition place.
+
+=cut
+
+sub lang_build_bool_test {
+  my $self = shift->_get_instance();
+  my ($prologue, $test, @decls) = @_;
+
+  defined( $test ) or $test = "1";
+  my $test_code = <<ACEOF;
+  static int test_array [($test) ? 1 : -1 ];
+  test_array [0] = 0
+ACEOF
+  if( @decls ) {
+    $test_code = join( "\n", @decls, $test_code );
+  }
+  return $self->lang_build_program( $prologue, $test_code );
+}
+
+=head2 push_includes
+
+Adds given list of directories to preprocessor/compiler
+invocation. This is not proved to allow adding directories
+which might be created during the build.
+
+=cut
+
+sub push_includes {
+  my $self = shift->_get_instance();
+  my @includes = @_;
+
+  push( @{$self->{extra_include_dirs}}, @includes );
+
+  return;
+}
+
+=head2 push_preprocess_flags
+
+Adds given flags to the parameter list for preprocessor invocation.
+
+=cut
+
+sub push_preprocess_flags {
+  my $self = shift->_get_instance();
+  my @cpp_flags = @_;
+
+  push( @{$self->{extra_preprocess_flags}}, @cpp_flags );
+
+  return;
+}
+
+=head2 push_compiler_flags
+
+Adds given flags to the parameter list for compiler invocation.
+
+=cut
+
+sub push_compiler_flags {
+  my $self = shift->_get_instance();
+  my @compiler_flags = @_;
+  my $lang = $self->{lang};
+
+  if( scalar( @compiler_flags ) && ( ref($compiler_flags[-1]) eq "HASH" ) ) {
+    my $lang_opt = pop( @compiler_flags );
+    defined( $lang_opt->{lang} ) or croak( "Missing lang attribute in language options" );
+    $lang = $lang_opt->{lang};
+    defined( $self->{lang_supported}->{$lang} ) or croak( "Unsupported language '$lang'" );
+  }
+
+  push( @{$self->{extra_compile_flags}->{$lang}}, @compiler_flags );
+
+  return;
+}
+
+=head2 push_libraries
+
+Adds given list of libraries to the parameter list for linker invocation.
+
+=cut
+
+sub push_libraries {
+  my $self = shift->_get_instance();
+  my @libs = @_;
+
+  push( @{$self->{extra_libs}}, @libs );
+
+  return;
+}
+
+=head2 push_library_paths
+
+Adds given list of library paths to the parameter list for linker invocation.
+
+=cut
+
+sub push_library_paths {
+  my $self = shift->_get_instance();
+  my @libdirs = @_;
+
+  push( @{$self->{extra_lib_dirs}}, @libdirs );
+
+  return;
+}
+
+=head2 push_link_flags
+
+Adds given flags to the parameter list for linker invocation.
+
+=cut
+
+sub push_link_flags {
+  my $self = shift->_get_instance();
+  my @link_flags = @_;
+
+  push( @{$self->{extra_link_flags}}, @link_flags );
+
+  return;
 }
 
 =head2 compile_if_else( $src [, action-if-true [, action-if-false ] ] )
@@ -791,7 +915,7 @@ If I<type> type is defined, preprocessor macro HAVE_I<type> (in all
 capitals, with "*" replaced by "P" and spaces and dots replaced by
 underscores) is defined.
 
-This macro caches its result in the C<ac_cv_type_>type variable.
+This method caches its result in the C<ac_cv_type_>type variable.
 
 =cut
 
@@ -860,6 +984,291 @@ sub check_types {
   }
 
   return $have_types;
+}
+
+sub _compute_int_compile {
+  my ($self, $expr, $prologue, @decls) = @_;
+  $self = $self->_get_instance();
+
+  my( $body, $conftest, $compile_result );
+
+  my ($low, $mid, $high) = (0, 0, 0);
+  if( $self->compile_if_else( $self->lang_build_bool_test( $prologue, "((long int)($expr)) >= 0", @decls ) ) ) {
+    $low = $mid = 0;
+    while( 1 ) {
+      if( $self->compile_if_else( $self->lang_build_bool_test( $prologue, "((long int)($expr)) <= $mid", @decls ) ) ) {
+	$high = $mid;
+	last;
+      }
+      $low = $mid + 1;
+      # avoid overflow
+      if( $low <= $mid ) {
+	$low = 0;
+	last;
+      }
+      $mid = $low * 2;
+    }
+  }
+  elsif( $self->compile_if_else( $self->lang_build_bool_test( $prologue, "((long int)($expr)) < 0", @decls ) ) ) {
+    $high = $mid = -1;
+    while( 1 ) {
+      if( $self->compile_if_else( $self->lang_build_bool_test( $prologue, "((long int)($expr)) >= $mid", @decls ) ) ) {
+	$low = $mid;
+	last;
+      }
+      $high = $mid - 1;
+      # avoid overflow
+      if( $mid < $high ) {
+	$high = 0;
+	last;
+      }
+      $mid = $high * 2;
+    }
+  }
+
+  # perform binary search between $low and $high
+  while( $low <= $high ) {
+    $mid = int( ( $high - $low ) / 2 + $low );
+    if( $self->compile_if_else( $self->lang_build_bool_test( $prologue, "((long int)($expr)) < $mid", @decls ) ) ) {
+      $high = $mid - 1;
+    }
+    elsif( $self->compile_if_else( $self->lang_build_bool_test( $prologue, "((long int)($expr)) > $mid", @decls ) ) ) {
+      $low = $mid + 1;
+    }
+    else {
+      return $mid;
+    }
+  }
+
+  return;
+}
+
+=head2 compute_int (expression, [action-if-fails], [prologue = default includes], [@decls])
+
+Returns the value of the integer I<expression>. The value should fit in an
+initializer in a C variable of type signed long.  It should be possible
+to evaluate the expression at compile-time. If no includes are specified,
+the default includes are used.
+
+Execute I<action-if-fails> if the value cannot be determined correctly.
+
+=cut
+
+sub compute_int {
+  my ($self, $expr, $action_if_fails, $prologue, @decls) = @_;
+  $self = $self->_get_instance();
+
+  my $cache_name = $self->_cache_type_name( "compute_int", $self->{lang}, $expr );
+  my $check_sub = sub {
+
+    my $val = $self->_compute_int_compile( $expr, $prologue, @decls);
+    unless( defined( $val ) ) {
+      if( defined( $action_if_fails ) and "CODE" eq ref( $action_if_fails ) ) {
+	&{$action_if_fails}();
+      }
+    }
+
+    return $val;
+  };
+
+  return $self->check_cached( $cache_name, "for compute result of ($expr)", $check_sub );
+}
+
+sub _sizeof_type_define_name {
+  my $type = $_[0];
+  my $have_name = "SIZEOF_" . uc($type);
+  $have_name =~ tr/*/P/;
+  $have_name =~ tr/_A-Za-z0-9/_/c;
+  return $have_name;
+}
+
+=head2 check_sizeof_type (type, [action-if-found], [action-if-not-found], [prologue = default includes])
+
+Checks for the size of the specified type by compiling. If no size can
+determined, I<action-if-not-found> is invoked when given. Otherwise
+I<action-if-found> is invoked and C<SIZEOF_type> is defined using the
+determined size.
+
+In opposition to GNU AutoConf, this method can determine size of structure
+members, eg.
+
+  $ac->check_sizeof_type( "SV.sv_refcnt", undef, undef, $include_perl );
+  # or
+  $ac->check_sizeof_type( "struct utmpx.ut_id", undef, undef, "#include <utmpx.h>" );
+
+This method caches its result in the C<ac_cv_sizeof_E<lt>set langE<gt>>_type variable.
+
+=cut
+
+sub check_sizeof_type {
+  my ($self, $type, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+  defined( $type ) or return; # XXX prefer croak
+  ref( $type ) eq "" or return;
+
+  my $cache_name = $self->_cache_type_name( "sizeof", $self->{lang}, $type );
+  my $check_sub = sub {
+
+    my @decls;
+    if( $type =~ m/^([^.]+)\.([^.]+)$/ ) {
+      my $struct = $1;
+      $type = "_ac_test_aggr.$2";
+      my $decl = "static $struct _ac_test_aggr;";
+      push( @decls, $decl );
+    }
+  
+    my $typesize = $self->_compute_int_compile( "sizeof($type)", $prologue, @decls );
+    $self->define_var( _sizeof_type_define_name( $type ), $typesize ? $typesize : undef, "defined when sizeof($type) is available" );
+    if( $typesize ) {
+      if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+	&{$action_if_found}();
+      }
+    }
+    else {
+      if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+	&{$action_if_not_found}();
+      }
+    }
+
+    return $typesize;
+  };
+
+  return $self->check_cached( $cache_name, "for size of $type", $check_sub );
+}
+
+=head2 check_sizeof_types (type, [action-if-found], [action-if-not-found], [prologue = default includes])
+
+For each type L<check_sizeof_type> is called to check for size of type.
+
+If I<action-if-found> is given, it is additionally executed when all of the
+sizes of the types could determined. If I<action-if-not-found> is given, it
+is executed when one size of the types could not determined.
+
+=cut
+
+sub check_sizeof_types {
+  my ($self, $types, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+
+  my $have_sizes = 1;
+  foreach my $type (@$types) {
+    $have_sizes &= ! ! ($self->check_sizeof_type ( $type, undef, undef, $prologue ));
+  }
+
+  if( $have_sizes ) {
+    if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+      &{$action_if_found}();
+    }
+  }
+  else {
+    if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+      &{$action_if_not_found}();
+    }
+  }
+
+  return $have_sizes;
+}
+
+sub _alignof_type_define_name {
+  my $type = $_[0];
+  my $have_name = "ALIGNOF_" . uc($type);
+  $have_name =~ tr/*/P/;
+  $have_name =~ tr/_A-Za-z0-9/_/c;
+  return $have_name;
+}
+
+=head2 check_alignof_type (type, [action-if-found], [action-if-not-found], [prologue = default includes])
+
+Define ALIGNOF_type to be the alignment in bytes of type. I<type y;> must
+be valid as a structure member declaration or I<type> must be a structure
+member itself.
+
+This method caches its result in the C<ac_cv_alignof_E<lt>set langE<gt>>_type
+variable, with I<*> mapped to C<p> and other characters not suitable for a
+variable name mapped to underscores.
+
+=cut
+
+sub check_alignof_type {
+  my ($self, $type, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+  defined( $type ) or return; # XXX prefer croak
+  ref( $type ) eq "" or return;
+
+  my $cache_name = $self->_cache_type_name( "alignof", $self->{lang}, $type );
+  my $check_sub = sub {
+
+    my @decls = (
+      "#ifndef offsetof",
+      "# ifdef __ICC",
+      "#  define offsetof(type,memb) ((size_t)(((char *)(&((type*)0)->memb)) - ((char *)0)))",
+      "# else",
+      "#  define offsetof(type,memb) ((size_t)&((type*)0)->memb)",
+      "# endif",
+      "#endif"
+    );
+
+    my ($struct, $memb);
+    if( $type =~ m/^([^.]+)\.([^.]+)$/ ) {
+      $struct = $1;
+      $memb = $2;
+    }
+    else {
+      push( @decls, "typedef struct { char x; $type y; } ac__type_alignof_;" );
+      $struct = "ac__type_alignof_";
+      $memb = "y";
+    }
+  
+    my $typealign = $self->_compute_int_compile( "offsetof($struct, $memb)", $prologue, @decls );
+    $self->define_var( _alignof_type_define_name( $type ), $typealign ? $typealign : undef, "defined when alignof($type) is available" );
+    if( $typealign ) {
+      if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+	&{$action_if_found}();
+      }
+    }
+    else {
+      if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+	&{$action_if_not_found}();
+      }
+    }
+
+    return $typealign;
+  };
+
+  return $self->check_cached( $cache_name, "for align of $type", $check_sub );
+}
+
+=head2 check_alignof_types (type, [action-if-found], [action-if-not-found], [prologue = default includes])
+
+For each type L<check_alignof_type> is called to check for align of type.
+
+If I<action-if-found> is given, it is additionally executed when all of the
+aligns of the types could determined. If I<action-if-not-found> is given, it
+is executed when one align of the types could not determined.
+
+=cut
+
+sub check_alignof_types {
+  my ($self, $types, $action_if_found, $action_if_not_found, $prologue) = @_;
+  $self = $self->_get_instance();
+
+  my $have_aligns = 1;
+  foreach my $type (@$types) {
+    $have_aligns &= ! ! ($self->check_alignof_type ( $type, undef, undef, $prologue ));
+  }
+
+  if( $have_aligns ) {
+    if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+      &{$action_if_found}();
+    }
+  }
+  else {
+    if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+      &{$action_if_not_found}();
+    }
+  }
+
+  return $have_aligns;
 }
 
 sub _have_member_define_name {
@@ -987,6 +1396,19 @@ sub _have_header_define_name {
   return $have_name;
 }
 
+sub _check_header {
+  my ($self, $header, $prologue, $body) = @_;
+
+  $prologue .= <<"_ACEOF";
+    #include <$header>
+_ACEOF
+  my $conftest = $self->lang_build_program( $prologue, $body );
+
+  my $have_header = $self->compile_if_else( $conftest );
+  return $have_header;
+}
+
+
 =head2 check_header
 
 This function is used to check if a specific header file is present in
@@ -1008,19 +1430,16 @@ sub check_header {
   my $header = shift;
   my $pre_inc = shift;
   
+
   return 0 unless $header;
+  my $prologue  = "";
+  defined $pre_inc
+    and $prologue .= "$pre_inc\n";
+
   my $cache_name = $self->_cache_name( $header );
   my $check_sub = sub {
   
-    my $prologue  = "";
-    defined $pre_inc
-      and $prologue .= "$pre_inc\n";
-       $prologue .= <<"_ACEOF";
-    #include <$header>
-_ACEOF
-    my $conftest = $self->lang_build_program( $prologue, "" );
-
-    my $have_header = $self->compile_if_else( $conftest );
+    my $have_header = $self->_check_header( $header, $prologue, "" );
     $self->define_var( _have_header_define_name( $header ), $have_header ? $have_header : undef, "defined when $header is available" );
 
     return $have_header;
@@ -1079,6 +1498,68 @@ sub check_default_headers {
   my $self = shift->_get_instance();
   my $rc = $self->check_stdc_headers() and $self->check_all_headers( qw(sys/types.h sys/stat.h memory.h strings.h inttypes.h unistd.h) );
   return $rc;
+}
+
+=head2 check_dirent_header
+
+Check for the following header files. For the first one that is found and
+defines 'DIR', define the listed C preprocessor macro:
+
+  dirent.h 	HAVE_DIRENT_H
+  sys/ndir.h 	HAVE_SYS_NDIR_H
+  sys/dir.h 	HAVE_SYS_DIR_H
+  ndir.h 	HAVE_NDIR_H
+
+The directory-library declarations in your source code should look
+something like the following:
+
+  #include <sys/types.h>
+  #ifdef HAVE_DIRENT_H
+  # include <dirent.h>
+  # define NAMLEN(dirent) strlen ((dirent)->d_name)
+  #else
+  # define dirent direct
+  # define NAMLEN(dirent) ((dirent)->d_namlen)
+  # ifdef HAVE_SYS_NDIR_H
+  #  include <sys/ndir.h>
+  # endif
+  # ifdef HAVE_SYS_DIR_H
+  #  include <sys/dir.h>
+  # endif
+  # ifdef HAVE_NDIR_H
+  #  include <ndir.h>
+  # endif
+  #endif
+
+Using the above declarations, the program would declare variables to be of
+type C<struct dirent>, not C<struct direct>, and would access the length
+of a directory entry name by passing a pointer to a C<struct dirent> to
+the C<NAMLEN> macro.
+
+This macro might be obsolescent, as all current systems with directory
+libraries have C<<E<lt>dirent.hE<gt>>>. Programs supporting only newer OS
+might not need touse this macro.
+
+=cut
+
+sub check_dirent_header {
+  my $self = shift->_get_instance();
+
+  my $cache_name = $self->_cache_name( "header_dirent" );
+  my $check_sub = sub {
+  
+    my $have_dirent;
+    foreach my $header (qw(dirent.h sys/ndir.h sys/dir.h ndir.h)) {
+      $have_dirent = $self->_check_header( $header, "#include <sys/types.h>\n", "if ((DIR *) 0) { return 0; }" );
+      $self->define_var( _have_header_define_name( $header ), $have_dirent ? $have_dirent : undef, "defined when $header is available" );
+      $have_dirent and $have_dirent = $header and last;
+    }
+
+    return $have_dirent;
+  };
+
+
+  return $self->check_cached( $cache_name, "for header defining DIR *", $check_sub );
 }
 
 sub _have_lib_define_name {
