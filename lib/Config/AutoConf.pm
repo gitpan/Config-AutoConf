@@ -31,7 +31,7 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =cut
 
-our $VERSION = '0.18';
+our $VERSION = '0.19';
 
 =head1 ABSTRACT
 
@@ -259,7 +259,7 @@ Prints "Checking @_ ..."
 sub msg_checking {
   my $self = shift->_get_instance();
   $self->{quiet} or
-    print "Checking " . join( " ", @_, "..." );
+    print "Checking " . join(" ", @_) . "... ";
   $self->_add2log( "Checking " . join( " ", @_, "..." ) );
   return;
 }
@@ -1471,6 +1471,8 @@ If those are found, additional all remaining C89 headers are checked: assert.h,
 ctype.h, errno.h, limits.h, locale.h, math.h, setjmp.h, signal.h, stddef.h,
 stdio.h and time.h.
 
+Returns a false value if it fails.
+
 =cut
 
 sub check_stdc_headers {
@@ -1547,7 +1549,7 @@ sub check_dirent_header {
 
   my $cache_name = $self->_cache_name( "header_dirent" );
   my $check_sub = sub {
-  
+
     my $have_dirent;
     foreach my $header (qw(dirent.h sys/ndir.h sys/dir.h ndir.h)) {
       $have_dirent = $self->_check_header( $header, "#include <sys/types.h>\n", "if ((DIR *) 0) { return 0; }" );
@@ -1567,6 +1569,37 @@ sub _have_lib_define_name {
   my $have_name = "HAVE_LIB" . uc($lib);
   $have_name =~ tr/_A-Za-z0-9/_/c;
   return $have_name;
+}
+
+=head2 check_lm( [ action-if-found ], [ action-if-not-found ] )
+
+This method is used to check if some common C<math.h> functions are
+available, and if C<-lm> is needed. Returns the empty string if no
+library is needed, or the "-lm" string if libm is needed.
+
+Actions are only called at the end of the list of tests. If one fails,
+I<action-if-not-found> is run. Otherwise, I<action-if-found> is run.
+
+=cut
+
+sub check_lm {
+    my ($self, $aif, $ainf) = @_;
+    ref($self) or $self = $self->_get_instance();
+
+    my $fail = 0;
+    my $required = "";
+    for my $func (qw(log2 pow log10 log exp sqrt)) {
+
+        my $ans = $self->search_libs( $func, ['m'] );
+
+        $ans or $fail = 1;
+        ($ans ne "none required") and $required = $ans;
+    }
+
+    if ($fail) { $ainf && $ainf->() }
+    else       { $aif  && $aif->() }
+
+    return $required;
 }
 
 =head2 check_lib( lib, func, [ action-if-found ], [ action-if-not-found ], [ @other-libs ] )
@@ -1613,31 +1646,32 @@ sub check_lib {
 
         my @save_libs = @{$self->{extra_libs}};
         push( @{$self->{extra_libs}}, $lib, @other_libs );
-    my $have_lib = $self->link_if_else( $conftest );
-    $self->{extra_libs} = [ @save_libs ];
+        my $have_lib = $self->link_if_else( $conftest );
+        $self->{extra_libs} = [ @save_libs ];
 
-    if( $have_lib ) {
-      if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
-	&{$action_if_found}();
-      }
-      else {
-	$self->define_var( _have_lib_define_name( $lib ), $have_lib, "defined when library $lib is available" );
-	push( @{$self->{extra_libs}}, $lib );
-      }
-    }
-    else {
-      if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
-	&{$action_if_not_found}();
-      }
-      else {
-	$self->define_var( _have_lib_define_name( $lib ), undef, "defined when library $lib is available" );
-      }
-    }
+        if( $have_lib ) {
+            if( defined( $action_if_found ) and "CODE" eq ref( $action_if_found ) ) {
+                &{$action_if_found}();
+            }
+            else {
+                $self->define_var( _have_lib_define_name( $lib ), $have_lib,
+                                   "defined when library $lib is available" );
+                push( @{$self->{extra_libs}}, $lib );
+            }
+        }
+        else {
+            if( defined( $action_if_not_found ) and "CODE" eq ref( $action_if_not_found ) ) {
+                &{$action_if_not_found}();
+            }
+            else {
+                $self->define_var( _have_lib_define_name( $lib ), undef,
+                                   "defined when library $lib is available" );
+            }
+        }
+        return $have_lib;
+    };
 
-    return $have_lib;
-  };
-
-  return $self->check_cached( $cache_name, "for $func in -l$lib", $check_sub );
+    return $self->check_cached( $cache_name, "for $func in -l$lib", $check_sub );
 }
 
 =head2 search_libs( function, search-libs, [action-if-found], [action-if-not-found], [other-libs] )
@@ -1672,7 +1706,7 @@ that needs to be prepended to LIBS.
 sub search_libs {
   my ( $self, $func, $libs, $action_if_found, $action_if_not_found, @other_libs ) = @_;
   ref($self) or $self = $self->_get_instance();
-  
+
   ( defined( $libs ) and "ARRAY" eq ref( $libs ) and scalar( @{$libs} ) > 0 )
     or return 0; # XXX would prefer croak
   return 0 unless $func;
@@ -1682,7 +1716,7 @@ sub search_libs {
 
   my $cache_name = $self->_cache_name( "search", $func );
   my $check_sub = sub {
-  
+
     my $conftest = $self->lang_call( "", $func );
 
     my @save_libs = @{$self->{extra_libs}};
@@ -1738,7 +1772,17 @@ sub _get_instance {
 sub _get_builder {
   my $self = $_[0]->_get_instance();
   defined( $self->{lang_supported}->{ $self->{lang} } ) or croak( "Unsupported compile language \"" . $self->{lang} . "\"" );
-  return $self->{lang_supported}->{ $self->{lang} }->new( quiet => 1 );
+
+  my $builder = $self->{lang_supported}->{ $self->{lang} }->new( quiet => 1 );
+
+  ## XXX - Temporarily. Will try to send upstream
+  if ($self->{lang} eq "C") {
+      $builder->{config}{ccflags} =~ s/-arch \S+//g;
+      $builder->{config}{lddlflags} =~ s/-arch \S+//g;
+      $builder->{config}{ldflags} =~ s/-arch \S+//g;
+  }
+  return $builder;
+
 }
 
 sub _set_language {
