@@ -23,7 +23,7 @@ use strict;
 our $LIBEXT = (defined $Config{dlext}) ? ("." . $Config{dlext}) : ($^O =~ /darwin/i)  ? ".dylib" : ( ($^O =~ /mswin32/i) ? ".dll" : ".so" );
 our $EXEEXT = ($^O =~ /mswin32/i) ? ".exe" : "";
 
-=encoding utf-8
+=encoding UTF-8
 
 =head1 NAME
 
@@ -31,7 +31,7 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =cut
 
-our $VERSION = '0.19';
+our $VERSION = '0.20';
 
 =head1 ABSTRACT
 
@@ -1498,7 +1498,7 @@ sys/types.h, sys/stat.h, memory.h, strings.h, inttypes.h, stdint.h and unistd.h
 
 sub check_default_headers {
   my $self = shift->_get_instance();
-  my $rc = $self->check_stdc_headers() and $self->check_all_headers( qw(sys/types.h sys/stat.h memory.h strings.h inttypes.h unistd.h) );
+  my $rc = $self->check_stdc_headers() and $self->check_all_headers( qw(sys/types.h sys/stat.h memory.h strings.h inttypes.h stdint.h unistd.h) );
   return $rc;
 }
 
