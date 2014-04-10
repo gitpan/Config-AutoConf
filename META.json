@@ -38,8 +38,19 @@
          }
       },
       "runtime" : {
+         "recommends" : {
+            "Scalar::Util" : "1.18"
+         },
          "requires" : {
-            "Clone" : "0"
+            "Capture::Tiny" : "0",
+            "Carp" : "0",
+            "Config" : "0",
+            "Cwd" : "0",
+            "ExtUtils::CBuilder" : "0.23",
+            "File::Basename" : "0",
+            "File::Spec" : "0",
+            "File::Temp" : "0",
+            "Text::ParseWords" : "0"
          }
       },
       "test" : {
@@ -63,5 +74,5 @@
          "web" : "https://github.com/ambs/Config-AutoConf"
       }
    },
-   "version" : "0.23"
+   "version" : "0.24"
 }
