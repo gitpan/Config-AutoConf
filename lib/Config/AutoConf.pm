@@ -1,6 +1,5 @@
 package Config::AutoConf;
 use ExtUtils::CBuilder;
-use 5.006;
 
 use Config;
 use Carp qw/croak/;
@@ -61,7 +60,7 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =cut
 
-our $VERSION = '0.25';
+our $VERSION = '0.26';
 
 =head1 ABSTRACT
 
@@ -220,7 +219,7 @@ Returns the full path, if found.
 sub check_prog_yacc {
   my $self = shift;
   my $binary = $self->check_progs(qw/bison byacc yacc/);
-  $binary .= " -y" if ($binary =~ /bison$/);
+  defined $binary and $binary =~ /bison$/ and $binary .= " -y";
   return $binary;
 }
 
@@ -313,10 +312,19 @@ Prints result \n
 
 =cut
 
+my @_num_to_msg = qw/no yes/;
+
+sub _neat
+{
+    defined $_[0] or return "";
+    looks_like_number( $_[0] ) and defined $_num_to_msg[$_[0]] and return $_num_to_msg[$_[0]];
+    return $_[0];
+}
+
 sub msg_result {
   my $self = shift->_get_instance();
   $self->{quiet} or
-    print join( " ", map { looks_like_number( $_ ) ? ( $_ == 0 ? "no" : ( $_ == 1 ? "yes" : $_ ) ) : $_ } @_ ), "\n";
+    print join( " ", map { _neat $_ } @_ ), "\n";
   return;
 }
 
