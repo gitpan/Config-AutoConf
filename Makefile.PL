@@ -3,20 +3,25 @@ use warnings;
 use ExtUtils::MakeMaker;
 
 my %RUN_DEPS = (
+    'base'               => 0,
+    'strict'             => 0,
+    'warnings'           => 0,
     'Carp'               => 0,
     'Capture::Tiny'      => 0,
     'Config'             => 0,
     'Cwd'                => 0,
+    'Exporter'           => 0,
+    'ExtUtils::CBuilder' => '0.23',
     'File::Basename'     => 0,
     'File::Spec'         => 0,
     'File::Temp'         => 0,
-    'ExtUtils::CBuilder' => '0.23',
     'Text::ParseWords'   => 0,
 );
 my %CONFIGURE_DEPS = ('ExtUtils::MakeMaker' => 0);
 my %BUILD_DEPS = ();
 
 my %TEST_DEPS = ('Test::More' => 0.90);
+$] < 5.008 and $TEST_DEPS{'IO::String'} = 0;
 
 WriteMakefile1(
     META_ADD         => {

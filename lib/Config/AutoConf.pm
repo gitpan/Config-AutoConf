@@ -21,13 +21,14 @@ sub looks_like_number {
     # checks from perlfaq4
     return 0 if !defined($_);
     if (ref($_)) {
-	    return overload::Overloaded($_) ? defined(0 + $_) : 0;
+        return overload::Overloaded($_) ? defined(0 + $_) : 0;
     }
     return 1 if (/^[+-]?[0-9]+$/); # is a +/- integer
     return 1 if (/^([+-]?)(?=[0-9]|\.[0-9])[0-9]*(\.[0-9]*)?([Ee]([+-]?[0-9]+))?$/); # a C float
     return 1 if ($] >= 5.008 and /^(Inf(inity)?|NaN)$/i) or ($] >= 5.006001 and /^Inf$/i);
 
     0;
+}
 EOP
 
 use base 'Exporter';
@@ -60,7 +61,7 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =cut
 
-our $VERSION = '0.26';
+our $VERSION = '0.27';
 
 =head1 ABSTRACT
 
