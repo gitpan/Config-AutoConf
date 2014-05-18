@@ -1,4 +1,14 @@
 package Config::AutoConf;
+
+use warnings;
+use strict;
+
+use base 'Exporter';
+
+our @EXPORT = ('$LIBEXT', '$EXEEXT');
+
+use constant QUOTE => do { $^O eq "MSWin32" ? q["] : q['] };
+
 use ExtUtils::CBuilder;
 
 use Config;
@@ -12,7 +22,7 @@ use Text::ParseWords qw//;
 use Capture::Tiny qw/capture/;
 
 # in core since 5.7.3
-eval { use Scalar::Util qw/looks_like_number/; };
+eval "use Scalar::Util qw/looks_like_number/;";
 __PACKAGE__->can("looks_like_number") or eval <<'EOP';
 # from PP part of Params::Util
 sub looks_like_number {
@@ -31,12 +41,17 @@ sub looks_like_number {
 }
 EOP
 
-use base 'Exporter';
-
-our @EXPORT = ('$LIBEXT', '$EXEEXT');
-
-use warnings;
-use strict;
+eval "use File::Slurp::Tiny qw/read_file/;";
+__PACKAGE__->can("read_file") or eval <<'EOP';
+sub read_file {
+  my $fn = shift;
+  local $@ = "";
+  open( my $fh, "<", $fn ) or croak "Error opening $fn: $!";
+  my $fc = <$fh>;
+  close($fh) or croak "I/O error closing $fn: $!";
+  return $fc;
+}
+EOP
 
 # PA-RISC1.1-thread-multi
 my %special_dlext = (
@@ -51,7 +66,7 @@ defined $LIBEXT
   or $LIBEXT = defined $Config{so} ? "." . $Config{so} :
                defined $special_dlext{$^O} ? $special_dlext{$^O} : ".so";
 defined $EXEEXT
-  or $EXEEXT = ($^O =~ /mswin32/i) ? ".exe" : "";
+  or $EXEEXT = ($^O eq "MSWin32") ? ".exe" : "";
 
 =encoding UTF-8
 
@@ -61,7 +76,7 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =cut
 
-our $VERSION = '0.27';
+our $VERSION = '0.28';
 
 =head1 ABSTRACT
 
@@ -163,11 +178,15 @@ sub check_files {
   return 1;
 }
 
+my @exe_exts = ( $^O eq "MSWin32" ? qw(.exe .com .bat .cmd) : ("") );
 
-=head2 check_prog
+=head2 check_prog(prog,[dirlist])
 
 This function checks for a program with the supplied name. In success
 returns the full path for the executable;
+
+An optional array reference containing a list of directories to be searched
+instead of $PATH is gracefully honored.
 
 =cut
 
@@ -175,34 +194,50 @@ sub check_prog {
   my $self = shift;
   # sanitize ac_prog
   my $ac_prog = _sanitize(shift @_);
-  my $PATH = $ENV{PATH};
-  my $p;
+  my @dirlist;
+  @_ and scalar @_ > 1 and @dirlist = @_;
+  @_ and scalar @_ == 1 and ref $_[0] eq "ARRAY" and @dirlist = @{$_[0]};
+  @dirlist or @dirlist = split(/$Config{path_sep}/,$ENV{PATH});
 
-  my $ext = "";
-  $ext = ".exe" if $^O =~ /mswin/i;
-	
-  for $p (split /$Config{path_sep}/,$PATH) {
-    my $cmd = File::Spec->catfile($p,$ac_prog.$ext);
-    return $cmd if -x $cmd;
+  for my $p (@dirlist) {
+    for my $e (@exe_exts) {
+      my $cmd = File::Spec->catfile($p,$ac_prog.$e);
+      return $cmd if -x $cmd;
+    }
   }
-  return undef;
+  return;
 }
 
-=head2 check_progs
+=head2 check_progs(progs, [dirlist])
 
 This function takes a list of program names. Returns the full path for
 the first found on the system. Returns undef if none was found.
+
+An optional array reference containing a list of directories to be searched
+instead of $PATH is gracefully honored.
 
 =cut
 
 sub check_progs {
   my $self = shift;
+  my @dirlist;
+  scalar @_ > 1 and ref $_[-1] eq "ARRAY" and @dirlist = @{pop @_};
+  @dirlist or @dirlist = split(/$Config{path_sep}/,$ENV{PATH});
+
   my @progs = @_;
   for (@progs) {
-    my $ans = $self->check_prog($_);
+    defined $_ or next;
+    my $ans = $self->check_prog($_, \@dirlist);
     return $ans if $ans;
   }
-  return undef;
+  return;
+}
+
+sub _append_prog_args {
+  my $self = shift;
+  my $prog = shift;
+  (scalar Text::ParseWords::shellwords $prog) > 1 and $prog = QUOTE . $prog . QUOTE;
+  return join(" ", $prog, @_);
 }
 
 =head2 check_prog_yacc
@@ -211,7 +246,8 @@ From the autoconf documentation,
 
   If `bison' is found, set [...] `bison -y'.
   Otherwise, if `byacc' is found, set [...] `byacc'. 
-  Otherwise set [...] `yacc'.
+  Otherwise set [...] `yacc'.  The result of this test can be influenced
+  by setting the variable YACC or the cache variable ac_cv_prog_YACC.
 
 Returns the full path, if found.
 
@@ -219,9 +255,18 @@ Returns the full path, if found.
 
 sub check_prog_yacc {
   my $self = shift;
-  my $binary = $self->check_progs(qw/bison byacc yacc/);
-  defined $binary and $binary =~ /bison$/ and $binary .= " -y";
-  return $binary;
+
+# my ($self, $cache_name, $message, $check_sub) = @_;
+
+  my $cache_name = $self->_cache_name("prog", "YACC");
+  return $self->check_cached( $cache_name, "for yacc",
+    sub {
+      defined $ENV{YACC} and return $ENV{YACC};
+      my $binary = $self->check_progs(qw/bison byacc yacc/);
+      defined $binary and $binary =~ /bison(?:\.(?:exe|com|bat|cmd))?$/
+        and $binary = $self->_append_prog_args($binary, "-y");
+      return $binary;
+    } );
 }
 
 =head2 check_prog_awk
@@ -230,8 +275,9 @@ From the autoconf documentation,
 
   Check for `gawk', `mawk', `nawk', and `awk', in that order, and
   set output [...] to the first one that is found.  It tries
-  `gawk' first because that is reported to be the best
-  implementation.
+  `gawk' first because that is reported to be the best implementation.
+  The result can be overridden by setting the variable AWK or the
+  cache variable ac_cv_prog_AWK.
 
 Note that it returns the full path, if found.
 
@@ -239,7 +285,9 @@ Note that it returns the full path, if found.
 
 sub check_prog_awk {
   my $self = shift;
-  return $self->check_progs(qw/gawk mawk nawk awk/);
+  my $cache_name = $self->_cache_name("prog", "AWK");
+  return $self->check_cached( $cache_name, "for awk",
+    sub {$ENV{AWK} || $self->check_progs(qw/gawk mawk nawk awk/)} );
 }
 
 
@@ -248,7 +296,9 @@ sub check_prog_awk {
 From the autoconf documentation,
 
   Check for `grep -E' and `egrep', in that order, and [...] output
-  [...] the first one that is found.
+  [...] the first one that is found.  The result can be overridden by
+  setting the EGREP variable and is cached in the ac_cv_path_EGREP
+  variable. 
 
 Note that it returns the full path, if found.
 
@@ -257,18 +307,146 @@ Note that it returns the full path, if found.
 sub check_prog_egrep {
   my $self = shift;
 
-  my $grep;
+  my $cache_name = $self->_cache_name("prog", "EGREP");
+  return $self->check_cached( $cache_name, "for egrep",
+    sub {
+      defined $ENV{EGREP} and return $ENV{EGREP};
+      my $grep;
+      $grep = $self->check_progs("egrep") and return $grep;
 
-  if ($grep = $self->check_prog("grep")) {
-    my $ans = `echo a | ($grep -E '(a|b)') 2>/dev/null`;
-    return "$grep -E" if $ans eq "a\n";
-  }
-
-  if ($grep = $self->check_prog("egrep")) {
-    return $grep;
-  }
-  return undef;
+      if ($grep = $self->check_prog("grep")) {
+        # check_run - Capture::Tiny, Open3 ... ftw!
+        my $ans = `echo a | ($grep -E '(a|b)') 2>/dev/null`;
+        chomp $ans;
+        $ans eq "a" and return $self->_append_prog_args($grep,  "-E");
+      }
+    } );
 }
+
+=head2 check_prog_lex
+
+From the autoconf documentation,
+
+  If flex is found, set output [...] to ‘flex’ and [...] to -lfl, if that
+  library is in a standard place. Otherwise set output [...] to ‘lex’ and
+  [...] to -ll, if found. If [...] packages [...] ship the generated
+  file.yy.c alongside the source file.l, this [...] allows users without a
+  lexer generator to still build the package even if the timestamp for
+  file.l is inadvertently changed.
+
+Note that it returns the full path, if found.
+
+The structure $self->{lex} is set with attributes
+
+  prog => $LEX
+  lib => $LEXLIB
+  root => $lex_root
+
+=cut
+
+sub check_prog_lex {
+  my $self = shift->_get_instance;
+  my $cache_name = $self->_cache_name("prog", "LEX");
+  my $lex = $self->check_cached( $cache_name, "for lex",
+    sub {$ENV{LEX} || $self->check_progs(qw/flex lex/)} );
+  if($lex) {
+    defined $self->{lex}->{prog} or $self->{lex}->{prog} = $lex;
+    my $lex_root_var = $self->check_cached( "ac_cv_prog_lex_root", "for lex output file root",
+      sub {
+        my ($fh, $filename) = tempfile( "testXXXXXX", SUFFIX => '.l');
+        my $src = <<'EOLEX';
+%%
+a { ECHO; }
+b { REJECT; }
+c { yymore (); }
+d { yyless (1); }
+e { /* IRIX 6.5 flex 2.5.4 underquotes its yyless argument.  */
+    yyless ((input () != 0)); }
+f { unput (yytext[0]); }
+. { BEGIN INITIAL; }
+%%
+#ifdef YYTEXT_POINTER
+extern char *yytext;
+#endif
+int
+main (void)
+{
+  return ! yylex () + ! yywrap ();
+}
+EOLEX
+
+        print {$fh} $src;
+        close $fh;
+
+        my ( $stdout, $stderr, $exit ) =
+          capture { system( $lex, $filename ); };
+        chomp $stdout;
+        unlink $filename;
+        -f "lex.yy.c" and return "lex.yy";
+        -f "lexyy.c" and return "lexyy";
+        $self->msg_error("cannot find output from $lex; giving up");
+      });
+    defined $self->{lex}->{root} or $self->{lex}->{root} = $lex_root_var;
+
+    my $conftest = read_file($lex_root_var.".c");
+    unlink $lex_root_var.".c";
+
+    $cache_name = $self->_cache_name( "lib", "lex" );
+    my $check_sub = sub {
+      my @save_libs = @{$self->{extra_libs}};
+      my $have_lib = 0;
+      foreach my $libstest ( undef, qw(-lfl -ll) ) {
+        # XXX would local work on array refs? can we omit @save_libs?
+        $self->{extra_libs} = [ @save_libs ];
+        defined( $libstest ) and unshift( @{$self->{extra_libs}}, $libstest );
+        $self->link_if_else( $conftest )
+          and ( $have_lib = defined( $libstest ) ? $libstest : "none required" )
+          and last;
+      }
+      $self->{extra_libs} = [ @save_libs ];
+
+      if( $have_lib ) {
+        $self->define_var( _have_lib_define_name( "lex" ), $have_lib,
+                           "defined when lex library is available" );
+      }
+      else {
+        $self->define_var( _have_lib_define_name( "lex" ), undef,
+                           "defined when lex library is available" );
+      }
+      return $have_lib;
+    };
+
+    my $lex_lib = $self->check_cached( $cache_name, "lex library", $check_sub );
+    defined $self->{lex}->{lib} or $self->{lex}->{lib} = $lex_lib;
+  }
+
+  return $lex;
+}
+
+
+=head2 check_prog_sed
+
+From the autoconf documentation,
+
+  Set output variable [...] to a Sed implementation that conforms to Posix
+  and does not have arbitrary length limits. Report an error if no
+  acceptable Sed is found. See Limitations of Usual Tools, for more
+  information about portability problems with Sed.
+
+  The result of this test can be overridden by setting the SED variable and
+  is cached in the ac_cv_path_SED variable. 
+
+Note that it returns the full path, if found.
+
+=cut
+
+sub check_prog_sed {
+  my $self = shift;
+  my $cache_name = $self->_cache_name("prog", "SED");
+  return $self->check_cached( $cache_name, "for sed",
+    sub {$ENV{SED} || $self->check_progs(qw/gsed sed/)} );
+}
+
 
 =head2 check_prog_pkg_config
 
@@ -278,7 +456,7 @@ Checks for C<pkg-config> program. No additional tests are made for it ...
  
 sub check_prog_pkg_config {
   my $self = shift->_get_instance();
-  my $cache_name = $self->_cache_name("prog", "pkg-config");
+  my $cache_name = $self->_cache_name("prog", "PKG_CONFIG");
   return $self->check_cached( $cache_name, "for pkg-config",
     sub {$self->check_prog("pkg-config")} );
 }
@@ -824,6 +1002,9 @@ sub check_cached {
   ref $self or $self = $self->_get_instance();
 
   $self->msg_checking( $message );
+
+  defined $ENV{$cache_name} and not defined $self->{cache}->{$cache_name}
+    and $self->{cache}->{$cache_name} = $ENV{$cache_name};
 
   if( defined($self->{cache}->{$cache_name}) ) {
     $self->msg_result( "(cached)", $self->{cache}->{$cache_name} );
@@ -1438,7 +1619,7 @@ sub check_headers {
     return $_ if $self->check_header($_)
   }
 
-  return undef;
+  return;
 }
 
 sub _have_header_define_name {
@@ -1481,16 +1662,14 @@ sub check_header {
   my $self = shift;
   my $header = shift;
   my $pre_inc = shift;
-  
 
   return 0 unless $header;
-  my $prologue  = "";
-  defined $pre_inc
-    and $prologue .= "$pre_inc\n";
-
   my $cache_name = $self->_cache_name( $header );
   my $check_sub = sub {
-  
+    my $prologue  = "";
+    defined $pre_inc
+      and $prologue .= "$pre_inc\n";
+
     my $have_header = $self->_check_header( $header, $prologue, "" );
     $self->define_var( _have_header_define_name( $header ), $have_header ? $have_header : undef, "defined when $header is available" );
 
@@ -1621,6 +1800,85 @@ sub _have_lib_define_name {
   my $have_name = "HAVE_LIB" . uc($lib);
   $have_name =~ tr/_A-Za-z0-9/_/c;
   return $have_name;
+}
+
+=head2 _check_perl_api_program
+
+This method provides the program source which is suitable to do basic
+compile/link tests to prove perl development environment.
+
+=cut
+
+sub _check_perl_api_program {
+  my $self = shift;
+
+  my $includes = $self->_default_includes_with_perl();
+  my $perl_check_body = <<'EOB';
+  I32 rc;
+  SV *foo = newSVpv("Perl rocks", 11);
+  rc = SvCUR(foo);
+EOB
+  my $conftest = $self->lang_build_program( $includes, $perl_check_body );
+
+  return $conftest;
+}
+
+=head2 _check_compile_perl_api
+
+This method can be used from other checks to prove whether we have a perl
+development environment or not (perl.h, reasonable basic checks - types, etc.)
+
+=cut
+
+sub _check_compile_perl_api {
+  my $self = shift;
+
+  my $conftest = $self->_check_perl_api_program();
+  return $self->compile_if_else($conftest);
+}
+
+=head2 check_compile_perl_api
+
+This method can be used from other checks to prove whether we have a perl
+development environment or not (perl.h, reasonable basic checks - types, etc.)
+
+=cut
+
+sub check_compile_perl_api {
+  my $self = shift->_get_instance;
+  my $cache_name = $self->_cache_name(qw(compile perl api));
+  return $self->check_cached( $cache_name,
+    "whether perl api is accessible",
+    sub { $self->_check_compile_perl_api } );
+}
+
+=head2 _check_link_perl_api
+
+This method can be used from other checks to prove whether we have a perl
+development environment including a suitable libperl or not (perl.h,
+reasonable basic checks - types, etc.)
+
+Caller must ensure that the linker flags are set appropriate (C<-lperl>
+or similar).
+
+=cut
+
+sub _check_link_perl_api {
+  my $self = shift;
+
+  my $conftest = $self->_check_perl_api_program();
+  my @save_libs = @{$self->{extra_libs}};
+  my @save_extra_link_flags = @{$self->{extra_link_flags}};
+
+  push @{$self->{extra_libs}}, "perl";
+  push @{$self->{extra_link_flags}}, "-L" . File::Spec->catdir($Config{installarchlib}, "CORE");
+
+  my $have_libperl = $self->link_if_else( $conftest );
+
+  $self->{extra_libs} = [ @save_libs ];
+  $self->{extra_link_flags} = [ @save_extra_link_flags ];
+
+  return $have_libperl;
 }
 
 =head2 check_lm( [ action-if-found ], [ action-if-not-found ] )
@@ -1866,10 +2124,102 @@ sub pkg_config_package_flags
     return $self->check_cached( $cache_name, "for pkg-config package of $package", $check_sub );
 }
 
+=head2 _check_pureperl_build_wanted
+
+This method proves the C<_argv> attribute and (when set) the C<PERL_MM_OPT>
+whether they contain I<PUREPERL_ONLY=(0|1)> or not. The attribute C<_force_xs>
+is set appropriate, which allows a compile test to bail out when C<Makefile.PL>
+is called with I<PUREPERL_ONLY=0>.
+
+=cut
+
+sub _check_mm_pureperl_build_wanted {
+  my $self = shift->_get_instance;
+
+  defined $ENV{PERL_MM_OPT} and my @env_args = split " ", $ENV{PERL_MM_OPT};
+
+  foreach my $arg ( @{$self->{_argv}}, @env_args ) {
+    $arg =~ m/^PUREPERL_ONLY=(.*)$/ and return $self->{_force_xs} = 0 + !! $1;
+  }
+
+  return 0;
+}
+
+=head2 _check_pureperl_build_wanted
+
+This method proves the C<_argv> attribute and (when set) the C<PERL_MB_OPT>
+whether they contain I<--pureperl-only> or not.
+
+=cut
+
+sub _check_mb_pureperl_build_wanted {
+  my $self = shift->_get_instance;
+
+  defined $ENV{PERL_MB_OPT} and my @env_args = split " ", $ENV{PERL_MB_OPT};
+
+  foreach my $arg ( @{$self->{_argv}}, @env_args ) {
+    $arg eq "--pureperl-only" and return 1;
+  }
+
+  return 0;
+}
+
+=head2 _check_pureperl_build_wanted
+
+This method calls C<_check_mm_pureperl_build_wanted> when running under
+L<ExtUtils::MakeMaker> (C<Makefile.PL>) or C<_check_mb_pureperl_build_wanted>
+when running under a C<Build.PL> (L<Module::Build> compatible) environment.
+
+When neither is found (C<$0> contains neither C<Makefile.PL> nor C<Build.PL>),
+simply 0 is returned.
+
+=cut
+
+sub _check_pureperl_build_wanted {
+  $0 =~ m/Makefile\.PL$/i and goto \&_check_mm_pureperl_build_wanted;
+  $0 =~ m/Build\.PL$/i and goto \&_check_mb_pureperl_build_wanted;
+
+  return 0;
+}
+
+=head2 check_pureperl_build_wanted
+
+This check method proves whether a pureperl build is wanted or not by
+cached-checking C<< $self->_check_pureperl_build_wanted >>. The result
+might lead to further checks, eg. L</_check_compile_perl_api>.
+
+=cut
+
+sub check_pureperl_build_wanted {
+  my $self = shift->_get_instance;
+  my $cache_name = $self->_cache_name(qw(pureperl only wanted));
+  return $self->check_cached( $cache_name,
+    "whether pureperl shall be forced",
+    sub { $self->_check_pureperl_build_wanted } );
+}
+
 #
 #
 # Auxiliary funcs
 #
+
+=head2 _set_argv
+
+Intended to act as a helper for evaluating given command line arguments.
+Stores given arguments in instances C<_argv> attribute.
+
+Call once at very begin of C<Makefile.PL> or C<Build.PL>:
+
+  Your::Pkg::Config::AutoConf->_set_args(@ARGV);
+
+=cut
+
+sub _set_argv {
+  my ( $self, @argv ) = @_;
+  $self = $self->_get_instance;
+  $self->{_argv} = \@argv;
+  return;
+}
 
 sub _sanitize {
   # This is hard coded, and maybe a little stupid...
@@ -2045,6 +2395,26 @@ _ACEOF
 
   return $conftest;
 }
+
+=head2 _default_includes_with_perl
+
+returns a string containing default includes for program prologue containing
+I<_default_includes> plus
+
+  #include <EXTERN.h>
+  #include <perl.h>
+
+=cut
+
+sub _default_includes_with_perl {
+  my ($self) = @_;
+
+  my $include_perl = "#include <EXTERN.h>\n#include <perl.h>";
+  my $includes = join( "\n", $self->_default_includes, $include_perl );
+
+  return $includes;
+}
+
 
 sub _cache_prefix {
   return "ac";

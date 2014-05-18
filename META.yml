@@ -2,12 +2,13 @@
 abstract: 'A module to implement some of AutoConf macros in pure perl.'
 author:
   - 'Alberto Simoes <ambs@cpan.org>'
+  - 'Jens Rehsack <rehsack@cpan.org'
 build_requires:
   Test::More: '0.9'
 configure_requires:
   ExtUtils::MakeMaker: '0'
 dynamic_config: 1
-generated_by: 'ExtUtils::MakeMaker version 6.96, CPAN::Meta::Converter version 2.140640'
+generated_by: 'ExtUtils::MakeMaker version 6.98, CPAN::Meta::Converter version 2.141170'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -38,4 +39,4 @@ resources:
   homepage: https://metacpan.org/release/Config-AutoConf
   license: http://dev.perl.org/licenses/
   repository: https://github.com/ambs/Config-AutoConf
-version: '0.27'
+version: '0.28'

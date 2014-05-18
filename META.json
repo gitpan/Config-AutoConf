@@ -1,10 +1,11 @@
 {
    "abstract" : "A module to implement some of AutoConf macros in pure perl.",
    "author" : [
-      "Alberto Simoes <ambs@cpan.org>"
+      "Alberto Simoes <ambs@cpan.org>",
+      "Jens Rehsack <rehsack@cpan.org"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "ExtUtils::MakeMaker version 6.96, CPAN::Meta::Converter version 2.140640",
+   "generated_by" : "ExtUtils::MakeMaker version 6.98, CPAN::Meta::Converter version 2.141170",
    "license" : [
       "perl_5"
    ],
@@ -21,6 +22,9 @@
    },
    "prereqs" : {
       "build" : {
+         "recommends" : {
+            "File::Slurp::Tiny" : "0"
+         },
          "requires" : {}
       },
       "configure" : {
@@ -78,5 +82,5 @@
          "web" : "https://github.com/ambs/Config-AutoConf"
       }
    },
-   "version" : "0.27"
+   "version" : "0.28"
 }
