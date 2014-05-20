@@ -92,7 +92,7 @@ Config::AutoConf - A module to implement some of AutoConf macros in pure perl.
 
 =cut
 
-our $VERSION = '0.29';
+our $VERSION = '0.300';
 
 =head1 ABSTRACT
 
@@ -906,8 +906,8 @@ sub compile_if_else {
   print {$fh} $src;
   close $fh;
 
-  my ($obj_file, $errbuf, $exception);
-  (undef, $errbuf) = capture {
+  my ($obj_file, $outbuf, $errbuf, $exception);
+  ($outbuf, $errbuf) = capture {
     eval {
       $obj_file = $builder->compile(
         source => $filename,
@@ -926,6 +926,8 @@ sub compile_if_else {
     $errbuf and
       $self->_add2log( $errbuf );
     $self->_add2log( "failing program is:\n" . $src );
+    $outbuf and
+      $self->_add2log( "stdout was :\n" . $outbuf );
 
     defined( $action_if_false ) and "CODE" eq ref( $action_if_false ) and &{$action_if_false}();
     return 0;
@@ -954,8 +956,8 @@ sub link_if_else {
   print {$fh} $src;
   close $fh;
 
-  my ($obj_file, $errbuf, $exception);
-  (undef, $errbuf) = capture {
+  my ($obj_file, $outbuf, $errbuf, $exception);
+  ($outbuf, $errbuf) = capture {
     eval {
       $obj_file = $builder->compile(
         source => $filename,
@@ -971,6 +973,8 @@ sub link_if_else {
     $errbuf and
       $self->_add2log( $errbuf );
     $self->_add2log( "failing program is:\n" . $src );
+    $outbuf and
+      $self->_add2log( "stdout was :\n" . $outbuf );
 
     unlink $filename;
     unlink $obj_file if $obj_file;
@@ -979,7 +983,7 @@ sub link_if_else {
   }
 
   my $exe_file;
-  (undef, $errbuf) = capture {
+  ($outbuf, $errbuf) = capture {
     eval {
       $exe_file = $builder->link_executable(
         objects => $obj_file,
@@ -997,6 +1001,8 @@ sub link_if_else {
     $errbuf and
       $self->_add2log( $errbuf );
     $self->_add2log( "failing program is:\n" . $src );
+    $outbuf and
+      $self->_add2log( "stdout was :\n" . $outbuf );
 
     defined( $action_if_false ) and "CODE" eq ref( $action_if_false ) and &{$action_if_false}();
     return 0;
@@ -2258,7 +2264,7 @@ sub _get_builder {
   my $self = $_[0]->_get_instance();
   defined( $self->{lang_supported}->{ $self->{lang} } ) or croak( "Unsupported compile language \"" . $self->{lang} . "\"" );
 
-  my $builder = $self->{lang_supported}->{ $self->{lang} }->new( quiet => 1 );
+  my $builder = $self->{lang_supported}->{ $self->{lang} }->new();
 
   ## XXX - Temporarily. Will try to send upstream
   if ($self->{lang} eq "C") {
@@ -2446,7 +2452,8 @@ sub _cache_name {
 sub _get_log_fh {
   my $self = $_[0]->_get_instance();
   unless( defined( $self->{logfh} ) ) {
-    open( $self->{logfh}, ">", $self->{logfile} ) or croak "Could not open file $self->{logfile}: $!";
+    my $open_mode = defined $self->{logfile_mode} ? $self->{logfile_mode} : ">";
+    open( $self->{logfh}, $open_mode, $self->{logfile} ) or croak "Could not open file $self->{logfile}: $!";
   }
 
   return $self->{logfh};
