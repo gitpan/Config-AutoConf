@@ -62,9 +62,6 @@
          }
       },
       "test" : {
-         "recommends" : {
-            "IO::Tee" : "0"
-         },
          "requires" : {
             "Test::More" : "0.9"
          }
@@ -85,5 +82,5 @@
          "web" : "https://github.com/ambs/Config-AutoConf"
       }
    },
-   "version" : "0.302"
+   "version" : "0.303"
 }

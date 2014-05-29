@@ -31,6 +31,7 @@ TODO: {
 };
 
 TODO: {
+  -f "META.yml" or $ENV{AUTOMATED_TESTING} = 1;
   local $TODO = "Quick fix: TODO - analyse diag later" unless $ENV{AUTOMATED_TESTING};
   my ($fh, $fbuf, $dbuf, @old_logfh);
   $dbuf = "";
@@ -46,11 +47,9 @@ TODO: {
   $ac_1->add_log_fh($fh);
   cmp_ok(scalar @{$ac_1->{logfh}}, "==", 2, "Successfully added 2nd loghandle");
   ok( $ac_1->_check_link_perl_api(), "Could link perl extensions" ) or diag($dbuf);
-  diag("Foo");
   scalar @old_logfh and $ac_1->delete_log_fh( $fh );
   scalar @old_logfh and is_deeply(\@old_logfh, $ac_1->{logfh}, "add_log_fh/delete_log_fh");
   defined $fh and close($fh);
-  diag($dbuf);
   $fh = undef;
 }
 
