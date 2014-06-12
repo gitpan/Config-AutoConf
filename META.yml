@@ -8,7 +8,7 @@ build_requires:
 configure_requires:
   ExtUtils::MakeMaker: '0'
 dynamic_config: 1
-generated_by: 'ExtUtils::MakeMaker version 6.98, CPAN::Meta::Converter version 2.141170'
+generated_by: 'ExtUtils::MakeMaker version 6.98, CPAN::Meta::Converter version 2.141520'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -40,4 +40,4 @@ resources:
   homepage: https://metacpan.org/release/Config-AutoConf
   license: http://dev.perl.org/licenses/
   repository: https://github.com/ambs/Config-AutoConf
-version: '0.304'
+version: '0.305'
