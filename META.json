@@ -5,7 +5,7 @@
       "Jens Rehsack <rehsack@cpan.org"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "ExtUtils::MakeMaker version 6.98, CPAN::Meta::Converter version 2.141520",
+   "generated_by" : "ExtUtils::MakeMaker version 7.02, CPAN::Meta::Converter version 2.143240",
    "license" : [
       "perl_5"
    ],
@@ -42,6 +42,7 @@
       },
       "runtime" : {
          "recommends" : {
+            "ExtUtils::CBuilder" : "0.280220",
             "File::Slurp::Tiny" : "0",
             "Scalar::Util" : "1.18"
          },
@@ -51,7 +52,6 @@
             "Config" : "0",
             "Cwd" : "0",
             "Exporter" : "0",
-            "ExtUtils::CBuilder" : "0.23",
             "File::Basename" : "0",
             "File::Spec" : "0",
             "File::Temp" : "0",
@@ -63,11 +63,12 @@
       },
       "test" : {
          "requires" : {
+            "ExtUtils::CBuilder" : "0.23",
             "Test::More" : "0.9"
          }
       }
    },
-   "release_status" : "stable",
+   "release_status" : "testing",
    "resources" : {
       "bugtracker" : {
          "mailto" : "bug-config-autoconf@rt.cpan.org",
@@ -82,5 +83,5 @@
          "web" : "https://github.com/ambs/Config-AutoConf"
       }
    },
-   "version" : "0.305"
+   "version" : "0.306_001"
 }
