@@ -68,7 +68,7 @@
          }
       }
    },
-   "release_status" : "testing",
+   "release_status" : "stable",
    "resources" : {
       "bugtracker" : {
          "mailto" : "bug-config-autoconf@rt.cpan.org",
@@ -83,5 +83,5 @@
          "web" : "https://github.com/ambs/Config-AutoConf"
       }
    },
-   "version" : "0.306_002"
+   "version" : "0.307"
 }
