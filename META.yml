@@ -41,4 +41,4 @@ resources:
   homepage: https://metacpan.org/release/Config-AutoConf
   license: http://dev.perl.org/licenses/
   repository: https://github.com/ambs/Config-AutoConf
-version: '0.307'
+version: '0.308'
